@@ -35,14 +35,6 @@
       ],
       "env": {}
     },
-    "sequential-thinking": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sequential-thinking"
-      ],
-      "env": {}
-    },
     "postgres": {
       "command": "npx",
       "args": [
@@ -59,15 +51,7 @@
       "args": [
         "-y",
         "mcp-server-sqlite-npx",
-        "/home/dev/project/recipe/backend/app/data/recipe_history.sqlite3"
-      ],
-      "env": {}
-    },
-    "memory": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-memory"
+        "/tmp/recipe_cache/recipe_cache.sqlite3"
       ],
       "env": {}
     },
