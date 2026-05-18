@@ -1,3 +1,14 @@
-html, body, #app { height: 100%; width: 100%; margin: 0; }
-body { display: block; }
-#app { max-width: none; padding: 0; }
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+}
+
+body {
+  display: block;   /* flex로 가운데 정렬 금지 */
+}
+
+#app {
+  max-width: none;  /* 가운데로 좁게 모이는 현상 방지 */
+  padding: 0;       /* 레이아웃 패딩은 AppLayout에서 관리 */
+}

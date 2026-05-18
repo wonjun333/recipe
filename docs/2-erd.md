@@ -1,524 +1,717 @@
-# Storage Model + Logical Data Model
+# ERD — Recipe Management System (RMS)
 
-## 1. Document Purpose
-
-이 문서는 현재 저장소 기준의 실제 데이터 구조를 설명한다.
-
-중요:
-- 이 문서는 "정규화된 관계형 ERD"만을 설명하지 않는다.
-- 현재 시스템은 hybrid persistence 구조다.
-- FTP가 business file의 canonical source이고,
-  SQLite / filesystem / JSONL은 local operational persistence 역할을 한다.
-
-따라서 본 문서는 다음 두 층을 함께 다룬다.
-
-1. Physical persistence model
-2. Logical domain model
+> 기준일: 2026-05-17  
+> 기준: `/home/dev/project/recipe` 실제 소스코드  
+> 추론 원칙: 코드에서 확인 불가한 내용은 **"추론"** 또는 **"확인 필요"** 로 표기.
 
 ---
 
-## 2. Persistence Overview
+## 1. ERD 문서 개요
 
-현재 코드베이스의 저장 계층은 다음과 같이 구성된다.
+이 문서는 RMS 코드베이스에서 사용하는 모든 저장소(DB, 파일, FTP)의 스키마, 관계, 데이터 흐름을 정리한다.
 
-### 2.1 External Systems
-
-- PostgreSQL
-  - 설비 메타데이터 조회
-- MongoDB
-  - 설비별 FTP 자격증명 조회
-- FTP
-  - 설비의 실제 CAS/JOB/RECIPE 파일 원본 저장소
-
-### 2.2 Local Operational Stores
-
-- SQLite
-  - inventory, version, failure, state 저장
-- Local filesystem VM store
-  - 설비/경로별 mirrored file bytes + `.meta.json`
-- Local shadow file store
-  - destructive FTP 작업 전 백업
-- JSONL history
-  - append-only audit log
+| 저장소 | 종류 | 위치 | 역할 |
+|--------|------|------|------|
+| **SQLite** (`recipe_cache.sqlite3`) | 로컬 캐시 DB | `{tempdir}/recipe_test_edit/recipe_cache/` | 인벤토리·버전·실패·상태 캐시 |
+| **PostgreSQL** (`shared_db`) | 사내 DB (읽기 전용) | `10.173.132.124:12020` | 설비 마스터 |
+| **MongoDB** (`ADDCMP`) | 사내 DB (읽기 전용) | `10.173.128.185:27017` | FTP 인증 정보 |
+| **FTP** (설비별) | 사내 설비 파일서버 | 설비 IP:21 | Recipe 파일 실제 저장소 |
+| **JSONL** (`recipe_action_history.jsonl`) | 로컬 Append-only 로그 | `{tempdir}/recipe_test_edit/history/` | 작업 이력 |
+| **VM 파일스토어** | 로컬 파일시스템 | `{tempdir}/recipe_test_edit/recipe_vm_store/` | 바이너리 캐시 + 메타 JSON |
+| **Shadow 파일** | 로컬 파일시스템 | `{tempdir}/recipe_test_edit/` | 삭제·이름변경 전 백업 |
+| **CSV** (`cloud_protected_files.csv`) | 정적 파일 | `backend/app/data/` | 클라우드 보호 파일 목록 |
 
 ---
 
-## 3. Physical Persistence Model
+## 2. 데이터베이스 사용 방식
 
-## 3.1 SQLite: `equipment_inventory`
+```
+┌──────────────────────────────────────────────────────┐
+│                    FastAPI 백엔드                     │
+│                                                      │
+│  [API 요청 처리]            [백그라운드 워커]         │
+│   ↓ 읽기 전용                ↓ 읽기 전용             │
+│  PostgreSQL (설비 목록)    PostgreSQL (lk_model 설비) │
+│  MongoDB (FTP 인증)        MongoDB (FTP 인증)         │
+│   ↓ 실시간 읽기/쓰기         ↓ 실시간 읽기           │
+│  설비 FTP                  설비 FTP (목록 + 다운로드) │
+│   ↓ 캐시 fallback            ↓ 캐시 저장             │
+│  SQLite (file_versions)    SQLite (4개 테이블 전체)  │
+│                            VM 파일스토어              │
+│   ↓ 이력 기록               ─                        │
+│  JSONL 로그                                          │
+└──────────────────────────────────────────────────────┘
+```
 
-목적:
-- 설비별 source path 내 파일의 "마지막으로 알려진 상태"를 저장
-- live presence, 삭제 여부, cloud protected 여부, latest version 연결 정보 유지
-
-Primary Key:
-- `(eqp_id, source_path, name)`
-
-### Fields
-
-| Column | Type / Meaning | Notes |
-|---|---|---|
-| `eqp_id` | 설비 ID | PK 일부 |
-| `source_path` | FTP source directory | PK 일부, normalized path |
-| `name` | 파일명 | PK 일부 |
-| `ext` | 확장자 | inferred 가능 |
-| `modified_at` | 현재 inventory 상 modified time | live 또는 cache 기준 |
-| `size` | 현재 inventory 상 size | string 저장 |
-| `last_live_modified_at` | 마지막 live FTP 기준 modified time | live 비교용 |
-| `last_live_size` | 마지막 live FTP 기준 size | live 비교용 |
-| `last_cache_refresh_at` | 마지막 cache refresh 시각 | cache freshness |
-| `live_present` | 현재 live FTP에 존재 여부 | 1/0 |
-| `first_seen_at` | 처음 발견된 시각 | audit용 |
-| `last_seen_at` | 마지막으로 확인된 시각 | inventory scan 기준 |
-| `deleted_at` | live에서 사라진 시각 | nullable |
-| `latest_version_id` | `file_versions.version_id` 참조 성격 | FK 제약은 없음 |
-| `cloud_protected` | 보호 대상 여부 | retained 정책과 연계 |
-| `retain_cached` | live에서 없어도 cache 유지 여부 | bool 성격 |
-
-### 의미
-
-이 테이블은 "파일 원본"을 저장하지 않는다.
-이 테이블은 inventory index다.
+- **PostgreSQL / MongoDB**: 사내망 전용. 읽기만 수행. 직접 INSERT/UPDATE 없음.
+- **SQLite**: 로컬 캐시. API와 워커가 동시 접근. 명시적 트랜잭션 없음 (커넥션별 개별 commit).
+- **FTP**: 모든 실제 파일 저장소. 쓰기 작업(persist/rename/delete/transfer)은 FTP에 직접 반영.
+- **JSONL**: Append-only. 읽기 시 전체 파일 스캔 후 메모리 정렬.
 
 ---
 
-## 3.2 SQLite: `file_versions`
+## 3. 주요 테이블/모델 목록
 
-목적:
-- 파일 version capture 저장
-- raw bytes 저장 경로, hash, preview JSON, metadata JSON 기록
-
-Primary Key:
-- `version_id`
-
-### Fields
-
-| Column | Type / Meaning | Notes |
-|---|---|---|
-| `version_id` | version PK | autoincrement |
-| `eqp_id` | 설비 ID | logical ownership |
-| `source_path` | FTP source path | logical ownership |
-| `name` | 파일명 | logical ownership |
-| `ext` | 확장자 | |
-| `modified_at` | source modified time | live 기준 가능 |
-| `size` | source size | string |
-| `captured_at` | local capture 시각 | |
-| `capture_reason` | capture 이유 | ex: `worker` |
-| `storage_path` | raw bytes 저장 파일 경로 | filesystem pointer |
-| `file_hash` | content hash | SHA1 |
-| `preview_json` | 미리보기 payload | nullable |
-| `metadata_json` | 기타 메타데이터 | sourceKind, cloudProtected 등 |
-
-### 관계
-
-- 하나의 logical file key `(eqp_id, source_path, name)` 는 여러 version을 가질 수 있다.
-- DB 레벨 FK는 없지만 logical 1:N 관계다.
+| # | 이름 | DB 종류 | 소스 파일 | 읽기 주체 | 쓰기 주체 |
+|---|------|---------|-----------|-----------|-----------|
+| 1 | `equipment_inventory` | SQLite | `recipe_cache_store.py` | 워커, API | 워커 |
+| 2 | `file_versions` | SQLite | `recipe_cache_store.py` | API (fallback) | 워커 |
+| 3 | `inventory_failures` | SQLite | `recipe_cache_store.py` | API | 워커 |
+| 4 | `inventory_state` | SQLite | `recipe_cache_store.py` | API | 워커 |
+| 5 | `public.eqp_info` | PostgreSQL | `recipe_test_impl.py`, `ftp_eqp_ip.py` | API, 워커 | — |
+| 6 | `public.sdwt_info` | PostgreSQL | `recipe_test_impl.py`, `ftp_eqp_ip.py` | API, 워커 | — |
+| 7 | `core.recipe_unit` | PostgreSQL | `main.py` | (레거시 API) | — |
+| 8 | `ADDCMP.FTP_STATUS` | MongoDB | `ftp_credentials.py`, `ftp_eqp_ip.py` | API, 워커 | — |
+| 9 | `HistoryEntry` (JSONL) | 로컬 파일 | `history_service.py` | API | API |
+| 10 | VM 메타 JSON | 파일시스템 | `recipe_vm_store.py` | 워커 | 워커 |
+| 11 | `cloud_protected_files.csv` | CSV | `cloud_protected_registry.py` | API, 워커 | RMS 스크립트 |
 
 ---
 
-## 3.3 SQLite: `inventory_failures`
+## 4. 테이블별 컬럼 상세
 
-목적:
-- inventory sync 중 발생한 오류 기록
+### 4.1 `equipment_inventory` (SQLite)
 
-Primary Key:
-- `failure_id`
+> 소스: `backend/app/services/recipe_cache_store.py`
 
-### Fields
+복합 PK: `(eqp_id, source_path, name)`
 
-| Column | Meaning |
-|---|---|
-| `failure_id` | PK |
-| `eqp_id` | 설비 ID |
-| `source_path` | 대상 path |
-| `stage` | failure stage |
-| `reason` | 오류 내용 |
-| `created_at` | 기록 시각 |
-| `resolved` | 해결 여부 |
+| 컬럼명 | 타입 | PK | Nullable | Default | 비고 |
+|--------|------|----|----------|---------|------|
+| `eqp_id` | TEXT | ✓ (복합) | NOT NULL | — | 설비 ID |
+| `source_path` | TEXT | ✓ (복합) | NOT NULL | — | 소문자 정규화 저장 (`_norm_path()`) |
+| `name` | TEXT | ✓ (복합) | NOT NULL | — | 파일명 |
+| `ext` | TEXT | — | NULL 허용 | — | 파일 확장자 |
+| `modified_at` | TEXT | — | NULL 허용 | — | 마지막 캐시 기준 수정일시 |
+| `size` | TEXT | — | NULL 허용 | — | 파일 크기 (문자열) |
+| `last_live_modified_at` | TEXT | — | NULL 허용 | — | 마지막 FTP 라이브 수정일시 (**ALTER로 추가**) |
+| `last_live_size` | TEXT | — | NULL 허용 | — | 마지막 FTP 라이브 크기 (**ALTER로 추가**) |
+| `last_cache_refresh_at` | TEXT | — | NULL 허용 | — | 마지막 캐시 갱신 일시 (**ALTER로 추가**) |
+| `live_present` | INTEGER | — | NOT NULL | `1` | FTP에 현재 존재 여부 (0/1) |
+| `first_seen_at` | TEXT | — | NOT NULL | — | 최초 발견 일시 |
+| `last_seen_at` | TEXT | — | NOT NULL | — | 마지막 확인 일시 |
+| `deleted_at` | TEXT | — | NULL 허용 | — | FTP에서 삭제 감지 일시 |
+| `latest_version_id` | INTEGER | — | NULL 허용 | — | → `file_versions.version_id` (논리적 FK, 제약 없음) |
+| `cloud_protected` | INTEGER | — | NOT NULL | `0` | 클라우드 보호 파일 여부 (**ALTER로 추가**) |
+| `retain_cached` | INTEGER | — | NOT NULL | `0` | 캐시 강제 유지 여부 (**ALTER로 추가**) |
 
----
-
-## 3.4 SQLite: `inventory_state`
-
-목적:
-- 설비별 inventory revision과 요약 상태 관리
-
-Primary Key:
-- `eqp_id`
-
-### Fields
-
-| Column | Meaning |
-|---|---|
-| `eqp_id` | 설비 ID |
-| `revision` | inventory revision counter |
-| `inventory_hash` | snapshot hash |
-| `file_count` | 스냅샷 기준 파일 수 |
-| `last_sync_at` | 마지막 sync 시각 |
-| `last_changed_at` | 마지막 변경 감지 시각 |
-| `last_error` | 마지막 오류 메시지 |
+**인덱스**: `idx_inventory_eqp_path ON (eqp_id, source_path)`
 
 ---
 
-## 3.5 Filesystem: VM Store
+### 4.2 `file_versions` (SQLite)
 
-구현 위치:
-- `backend/app/services/recipe_vm_store.py`
+> 소스: `backend/app/services/recipe_cache_store.py`
 
-목적:
-- 설비/경로/파일별 local mirror 저장
-- raw bytes와 sidecar meta를 filesystem에 저장
+PK: `version_id` (AUTOINCREMENT)
 
-### 구성
+| 컬럼명 | 타입 | PK | Nullable | Default | 비고 |
+|--------|------|----|----------|---------|------|
+| `version_id` | INTEGER | ✓ | NOT NULL | AUTOINCREMENT | |
+| `eqp_id` | TEXT | — | NOT NULL | — | |
+| `source_path` | TEXT | — | NOT NULL | — | 소문자 정규화 저장 |
+| `name` | TEXT | — | NOT NULL | — | 파일명 |
+| `ext` | TEXT | — | NULL 허용 | — | |
+| `modified_at` | TEXT | — | NULL 허용 | — | |
+| `size` | TEXT | — | NULL 허용 | — | |
+| `captured_at` | TEXT | — | NOT NULL | — | 캐시 캡처 일시 |
+| `capture_reason` | TEXT | — | NOT NULL | — | `'worker'` 등 |
+| `storage_path` | TEXT | — | NOT NULL | — | 로컬 raw 바이너리 파일 경로 |
+| `file_hash` | TEXT | — | NOT NULL | — | SHA-1 해시 |
+| `preview_json` | TEXT | — | NULL 허용 | — | JSON 직렬화된 미리보기 dict |
+| `metadata_json` | TEXT | — | NULL 허용 | — | JSON 직렬화된 메타 dict |
 
-- 본문 파일
-  - `{base}/{eqp_id}/{source_path_parts}/{file_name}`
-- 메타 파일
-  - `{file_name}.meta.json`
-
-### Meta Fields
-
-| Field | Meaning |
-|---|---|
-| `eqpId` | 설비 ID |
-| `sourcePath` | source path |
-| `name` | 파일명 |
-| `modifiedAt` | source modified time |
-| `size` | source size |
-| `sourceKind` | recipe source kind |
-| `cloudProtected` | 보호 여부 |
-| `capturedAt` | VM 저장 시각 |
-
-### 역할
-
-- 빠른 재조회
-- preview 재활용 전 local byte source
-- live FTP 미접속 시 fallback 후보
+**인덱스**: `idx_versions_lookup ON (eqp_id, source_path, name, modified_at)`
 
 ---
 
-## 3.6 Filesystem: Shadow Store
+### 4.3 `inventory_failures` (SQLite)
 
-구현 위치:
-- `backend/app/services/temp_file_store.py`
+> 소스: `backend/app/services/recipe_cache_store.py`
 
-목적:
-- delete / rename / copy 전 shadow backup 생성
+PK: `failure_id` (AUTOINCREMENT)
 
-주의:
-- 현재 구현은 `file_name`만으로 shadow 경로를 만들기 때문에
-  서로 다른 설비/경로의 동명 파일이 충돌할 수 있다.
+| 컬럼명 | 타입 | PK | Nullable | Default | 비고 |
+|--------|------|----|----------|---------|------|
+| `failure_id` | INTEGER | ✓ | NOT NULL | AUTOINCREMENT | |
+| `eqp_id` | TEXT | — | NOT NULL | — | |
+| `source_path` | TEXT | — | NULL 허용 | — | |
+| `stage` | TEXT | — | NOT NULL | — | `'inventory'` 등 |
+| `reason` | TEXT | — | NOT NULL | — | 오류 메시지 |
+| `created_at` | TEXT | — | NOT NULL | — | |
+| `resolved` | INTEGER | — | NOT NULL | `0` | 해결 여부 (0/1) |
 
----
-
-## 3.7 JSONL: History Store
-
-구현 위치:
-- `backend/app/services/history_service.py`
-
-파일 형식:
-- append-only JSON Lines
-
-목적:
-- write-path 작업 audit trail 저장
-
-### History Fields
-
-| Field | Meaning |
-|---|---|
-| `actorName` | 작업자 |
-| `actorTeam` | 작업자 팀 |
-| `fromEqpId` | source equipment |
-| `action` | 작업 유형 |
-| `toEqpId` | target equipment |
-| `createdAt` | 시각 |
-| `itemKind` | cas/job/recipe |
-| `sourceName` | 원본 이름 |
-| `targetName` | 대상 이름 |
-| `recipeName` | 관련 recipe 이름 |
-| `requestId` | 요청 식별자 |
-| `status` | 성공/실패 상태 |
-| `reason` | 실패 이유 |
-| `detail` | 상세 정보 |
-
-이 저장소는 관계형 테이블이 아니다.
+**인덱스**: `idx_failures_eqp ON (eqp_id, resolved, created_at)`
 
 ---
 
-## 4. External Read-Only Sources
+### 4.4 `inventory_state` (SQLite)
 
-## 4.1 PostgreSQL
+> 소스: `backend/app/services/recipe_cache_store.py`
 
-현재 코드상 Postgres는 두 가지 역할로 등장한다.
+PK: `eqp_id`
 
-### A. `core.recipe_unit` 조회
-
-- 파일: `backend/app/main.py`
-- mock/legacy 성격의 `/api/recipe-units` 조회
-
-### B. 설비 메타데이터 조회
-
-- 파일: `backend/app/services/ftp_eqp_ip.py`
-- `eqp_info`, `sdwt_info` 기반
-- line/team/eqp/model/maker/model_group 조회
-
-### Conceptual Entity: Equipment Reference
-
-| Field | Meaning |
-|---|---|
-| `eqp_id` | 설비 ID |
-| `line` | 라인 |
-| `team` | 분임조 |
-| `model` | 설비 모델 |
-| `maker` | 제조사 |
-| `model_group` | 모델 그룹 |
+| 컬럼명 | 타입 | PK | Nullable | Default | 비고 |
+|--------|------|----|----------|---------|------|
+| `eqp_id` | TEXT | ✓ | NOT NULL | — | |
+| `revision` | INTEGER | — | NOT NULL | `0` | 변경 감지 시 +1 |
+| `inventory_hash` | TEXT | — | NOT NULL | `''` | SHA-1 스냅샷 해시 |
+| `file_count` | INTEGER | — | NOT NULL | `0` | 현재 파일 수 |
+| `last_sync_at` | TEXT | — | NULL 허용 | — | 마지막 동기화 일시 |
+| `last_changed_at` | TEXT | — | NULL 허용 | — | 마지막 변경 감지 일시 |
+| `last_error` | TEXT | — | NULL 허용 | — | 마지막 오류 메시지 |
 
 ---
 
-## 4.2 MongoDB
+### 4.5 `public.eqp_info` (PostgreSQL — 쿼리 기반 **추론**)
 
-파일:
-- `backend/app/services/ftp_credentials.py`
-- `backend/app/services/ftp_eqp_ip.py`
+> 소스: `recipe_test_impl.py:load_eqp_master_options()`, `ftp_eqp_ip.py:load_lk_model_eqps()`
 
-역할:
-- `ADDCMP.FTP_STATUS` 에서 설비별 FTP 자격증명 조회
-
-### Conceptual Entity: FTP Credential
-
-| Field | Meaning |
-|---|---|
-| `EQPID` | 설비 ID |
-| `FTP_SERVER` | FTP host |
-| `FTP_ID` | FTP user |
-| `FTP_PW` | FTP password |
+| 컬럼명 | 비고 |
+|--------|------|
+| `eqp_id` | PK 추론. SELECT·WHERE·JOIN 키로 사용 |
+| `sdwt_name` | FK → `sdwt_info.sdwt_name` (JOIN 키) |
+| `eqp_model` | SELECT |
+| `maker_name` | SELECT |
+| `eqp_model_bucket` | 신버전 컬럼명 (확인됨) |
+| `eqp_model_bucker` | **오타 변형** — 구버전 컬럼명 추론. 코드에서 4개 쿼리 폴백으로 양쪽 시도 |
+| `prc_group` | `WHERE prc_group IS NOT NULL` 필터 |
+| `line_id` | `COALESCE(e.line_id::text, '')` — `sdwt_info.site` 없을 때 fallback |
 
 ---
 
-## 4.3 FTP
+### 4.6 `public.sdwt_info` (PostgreSQL — 쿼리 기반 **추론**)
 
-실제 business file 원본 위치다.
+> 소스: `recipe_test_impl.py`, `ftp_eqp_ip.py`
 
-주요 monitored path:
-
-| Source Kind | FTP Path | Extensions |
-|---|---|---|
-| polishRecipe | `\CMPDB\Lcmp\Recipes` | `.pol` |
-| conditionRecipe | `\CMPDB\Lcmp\Recipes` | `.con` |
-| exSituCondition | `\CMPDB\Lcmp\Recipes` | `.con` |
-| specialExSitu | `\CMPDB\Lcmp\Recipes` | `.con` |
-| megasonics | `\CMPDB\Lcmp\Recipes\CLEANER` | `.meg` |
-| brush1 | `\CMPDB\Lcmp\Recipes\CLEANER` | `.br` |
-| brush2 | `\CMPDB\Lcmp\Recipes\CLEANER` | `.br` |
-| vaporDryer | `\CMPDB\Lcmp\Recipes\CLEANER` | `.drpr`, `.dryr`, `.dypr` |
-
-참고:
-- CAS/JOB 파일 경로와 파싱 로직의 완전한 구현은 현재 저장소에서 복원되지 않았다.
+| 컬럼명 | 비고 |
+|--------|------|
+| `sdwt_name` | PK 추론. JOIN 키 |
+| `site` | `COALESCE(s.site, '')` → line 값으로 사용 |
 
 ---
 
-## 5. Logical Domain Model
+### 4.7 `core.recipe_unit` (PostgreSQL — **확인 필요**)
 
-이 섹션은 "현재 코드가 의도하는 도메인 개념"을 설명한다.
-아래 항목은 모두 현재 physical table로 존재하는 것은 아니다.
+> 소스: `backend/app/main.py` `GET /api/recipe-units` 레거시 엔드포인트 SELECT 절 기반
 
-## 5.1 Equipment
+| 컬럼명 | 비고 |
+|--------|------|
+| `id` | PK 추론 |
+| `line_name` | |
+| `team_name` | |
+| `equipment_id` | ILIKE 필터 |
+| `ppid` | ILIKE 필터 |
+| `cas_name` | |
+| `job_name` | |
+| `unit_recipe_name` | |
+| `ftp_path` | |
+| `is_active` | |
+| `created_at` | |
 
-설비 작업의 최상위 컨텍스트.
-
-Attributes:
-- eqpId
-- line
-- team
-- maker
-- model
-- modelGroup
-
-## 5.2 RecipeFile
-
-설비 FTP 아래 존재하는 일반화된 파일 개념.
-
-Attributes:
-- eqpId
-- sourcePath
-- name
-- ext
-- modifiedAt
-- size
-- livePresent
-- sourceKind
-- cloudProtected
-
-Subtypes 또는 역할:
-- CAS file
-- JOB file
-- RECIPE file
-
-## 5.3 CAS Document
-
-의도된 의미:
-- slot별 JOB 매핑을 담는 설비 파일
-
-Logical fields:
-- casId
-- eqpId
-- slots[]
-- raw text
-
-## 5.4 CAS Slot
-
-Logical child entity.
-
-Fields:
-- slotNumber
-- jobId 또는 jobName
-- recipeName 가능성
-
-## 5.5 JOB Document
-
-의도된 의미:
-- process stage별 동작과 recipe 참조를 담는 파일
-
-Logical fields:
-- jobId
-- jobName
-- baseRecipeName
-- raw text
-- parsed projection
-
-## 5.6 JOB Parsed Projection
-
-`job_parser.py` 가 생성하는 derived structure.
-
-Fields:
-- `preMetrology`
-- `polisher`
-- `cleaner`
-- `postMetrology`
-- 이후 확장 가능 필드
-  - `useHeads`
-  - `hcluRecipes`
-
-## 5.7 Recipe Preview
-
-원본 recipe 파일로부터 생성되는 derived read model.
-
-Fields:
-- id
-- name
-- sourceKind
-- columns
-- rows
-- meta
-
-## 5.8 History Entry
-
-작업 이력의 logical record.
-
-실제 저장은 JSONL이지만,
-도메인 관점에서는 write-path audit entity로 본다.
+> **확인 필요**: 테이블 실제 존재 여부 및 현재 사용 여부 불명확. 레거시 엔드포인트로 추정.
 
 ---
 
-## 6. Relationships
+### 4.8 `ADDCMP.FTP_STATUS` (MongoDB — projection 기반 **추론**)
 
-## 6.1 Persisted Relationships
+> 소스: `backend/app/services/ftp_credentials.py`, `ftp_eqp_ip.py`
 
-현재 코드상 실제로 유지되는 durable 관계는 다음과 같다.
+| 필드명 | 비고 |
+|--------|------|
+| `_id` | MongoDB ObjectId. 쿼리에서 명시 제외 (`'_id': 0`) |
+| `EQPID` | 조회 키 (`find_one` 필터) |
+| `FTP_SERVER` | FTP 호스트 IP |
+| `FTP_ID` | FTP 사용자명 |
+| `FTP_PW` | FTP 비밀번호 |
 
-1. `equipment_inventory` 1 : N `file_versions`
-   - 관계 키: `(eqp_id, source_path, name)`
-   - DB FK는 없지만 logical version chain
-
-2. `inventory_state` 1 : 1 `eqp_id`
-
-3. `inventory_failures` N : 1 `eqp_id`
-
-## 6.2 Derived Relationships
-
-다음 관계는 현재 런타임 또는 파일 파싱 결과로만 유도된다.
-
-1. `Equipment` 1 : N `RecipeFile`
-2. `CAS Document` 1 : N `CAS Slot`
-3. `CAS Slot` N : 1 `JOB Document` reference
-4. `JOB Document` 1 : N `Recipe reference`
-5. `RecipeFile(logical)` 1 : N `FileVersion`
-6. `RecipeFile` 1 : 0..1 `Recipe Preview`
-
-## 6.3 Not Enforced In Current Storage
-
-아래는 현재 관계형 제약으로 enforce되지 않는다.
-
-- Equipment to RecipeFile
-- CAS to JOB mapping
-- JOB to Recipe mapping
-- History to file/version linkage
+> projection `{'_id': 0, 'FTP_SERVER': 1, 'FTP_ID': 1, 'FTP_PW': 1}` 으로 명시. 추가 필드 존재 가능.
 
 ---
 
-## 7. Data Lifecycle
+### 4.9 `HistoryEntry` — JSONL 필드
 
-## 7.1 Inventory Sync Lifecycle
+> 소스: `backend/app/services/history_service.py`  
+> 경로: `{tempdir}/recipe_test_edit/history/recipe_action_history.jsonl`
 
-1. equipment 목록 조회
-2. FTP credential 조회
-3. FTP directory listing
-4. extension filtering
-5. `equipment_inventory` reconcile
-6. 변경 파일 download
-7. preview 생성
-8. VM store 저장
-9. `file_versions` 저장
-10. `inventory_state` 갱신
-
-## 7.2 Read Lifecycle
-
-1. UI가 설비 선택
-2. API가 CAS/JOB/RECIPE 목록 및 content 요청
-3. 이상적 구현에서는 VM store 또는 live FTP에서 파일 읽기
-4. JOB parser / recipe preview 생성기 사용
-5. 구조화된 payload 반환
-
-## 7.3 Write Lifecycle
-
-의도된 흐름:
-
-1. 기존 파일 읽기
-2. 사용자 수정 적용
-3. shadow backup
-4. FTP write/delete/copy
-5. VM store/cache 갱신
-6. history 기록
-
-현재 저장소에서는 이 흐름의 핵심 구현이 대부분 placeholder다.
+| 필드명 | 타입 | Default | 비고 |
+|--------|------|---------|------|
+| `actorName` | str | `'Unknown'` | 작업자 이름 (프론트 입력값, 서버 검증 없음) |
+| `actorTeam` | str | `''` | 작업자 팀 |
+| `fromEqpId` | str | (필수) | 작업 출발 설비 |
+| `action` | str | (필수) | `transfer`, `rename`, `delete`, `persist_cas`, `persist_job`, `clone` 등 |
+| `toEqpId` | str | (필수) | 작업 대상 설비 |
+| `createdAt` | str | 현재 시각 | `'YYYY-MM-DD HH:MM:SS'` |
+| `itemKind` | str | `''` | `'cas'`, `'job'`, `'recipe'` |
+| `sourceName` | str | `''` | 원본 파일명 |
+| `targetName` | str | `''` | 대상 파일명 |
+| `recipeName` | str | `''` | 연관 레시피명 |
+| `requestId` | str | `''` | 요청 식별자 |
+| `status` | str | `'ok'` | `'ok'`, `'failed'` 등 |
+| `reason` | str | `''` | 실패 사유 |
+| `detail` | str | `''` | 상세 설명 |
 
 ---
 
-## 8. Current Gaps
+### 4.10 VM 스토어 메타 JSON 필드
 
-- 정규화된 `CAS`, `JOB`, `Recipe`, `TransferHistory` 테이블 없음
-- edit session persistence 없음
-- optimistic locking 없음
-- relational migration framework 없음
-- `.pol/.con` reverse encode 미완성
-- history와 version 사이의 강한 링크 없음
-- 일부 cache/inventory 동작은 runtime bug 가능성 존재
+> 소스: `backend/app/services/recipe_vm_store.py`  
+> 경로: `{tempdir}/recipe_test_edit/recipe_vm_store/{eqp_id}/{source_path_parts}/{file_name}.meta.json`
+
+| 필드명 | 타입 | 비고 |
+|--------|------|------|
+| `eqpId` | str | |
+| `sourcePath` | str | |
+| `name` | str | 파일명 |
+| `modifiedAt` | str | |
+| `size` | str | |
+| `sourceKind` | str | |
+| `cloudProtected` | bool | |
+| `capturedAt` | str | `'YYYY-MM-DD HH:MM:SS'` |
+| *(동적 필드)* | any | `save_vm_file(metadata=…)` 으로 `meta.update()` — **확인 필요** |
 
 ---
 
-## 9. Suggested Future Physical Model
+### 4.11 `cloud_protected_files.csv`
 
-향후 시스템을 더 강하게 정규화하려면 다음 테이블들이 추가될 수 있다.
+> 소스: `backend/app/services/cloud_protected_registry.py`  
+> 경로: `backend/app/data/cloud_protected_files.csv`
 
-- `cas_documents`
-- `cas_slots`
-- `job_documents`
-- `job_parsed_snapshots`
-- `recipe_previews`
-- `history_entries`
-- `transfer_batches`
-- `edit_sessions`
+| 컬럼명 | 비고 |
+|--------|------|
+| `rcp_id` | 보호 대상 파일명. 소문자 비교. `.dypr` → `.drpr` 정규화 적용 |
 
-하지만 이는 현재 구현 상태가 아니라 future design이다.
+> `csv.DictReader` + `utf-8-sig` (BOM 처리). 추가 컬럼 존재 가능하나 코드에서 미사용.
 
-따라서 현재 문서에서는 actual storage와 logical entities를 분리하는 것이 맞다.
+---
+
+## 5. 테이블 간 관계와 Cardinality
+
+### 5.1 SQLite 내부 관계
+
+| 관계 | Cardinality | 비고 |
+|------|-------------|------|
+| `equipment_inventory` → `file_versions` | N:1 (latest) | `latest_version_id` → `version_id`. **논리적 FK, DB 제약 없음** |
+| `equipment_inventory` → `inventory_state` | N:1 | `eqp_id` 동일. **명시적 FK 없음** |
+| `equipment_inventory` → `inventory_failures` | N:N (논리) | `eqp_id` + `source_path` 동일. 실패 이력 다수 가능 |
+| `file_versions` → `equipment_inventory` | N:1 | `(eqp_id, source_path, name)` 동일 |
+
+### 5.2 외부 DB 간 논리 관계
+
+| 관계 | Cardinality | DB 경계 | 비고 |
+|------|-------------|---------|------|
+| `eqp_info.sdwt_name` → `sdwt_info.sdwt_name` | N:1 | PG 내부 | JOIN 쿼리로 확인 |
+| `eqp_info.eqp_id` → `FTP_STATUS.EQPID` | 1:1 (**추론**) | PG → MongoDB | `load_eqp_ip(eqp_id)` 호출 패턴 기반 추론 |
+| `eqp_info.eqp_id` → `equipment_inventory.eqp_id` | 1:N | PG → SQLite | 논리적 연결, DB 제약 없음 |
+| `eqp_info.eqp_id` → `HistoryEntry.fromEqpId/toEqpId` | 1:N | PG → JSONL | 논리적 연결 |
+
+---
+
+## 6. API와 테이블 간 매핑
+
+> 소스: `recipe_test_eqp.py`, `recipe_test_content.py`, `recipe_test_history.py`, `recipe_test_ops.py`, `recipe_inventory.py`
+
+| 메서드 | 경로 | Read | Write |
+|--------|------|------|-------|
+| GET | `/api/recipe-test/eqp-options` | PG `eqp_info`, `sdwt_info` | — |
+| POST | `/api/recipe-test/load` | PG `eqp_info`, MongoDB `FTP_STATUS`, FTP, SQLite `equipment_inventory` | — |
+| GET | `/api/recipe-test/cas-content` | FTP (`.cas`), 인메모리 `CAS_CACHE` | — |
+| GET | `/api/recipe-test/job-content` | FTP (`.job`), 인메모리 `JOB_CACHE` | — |
+| GET | `/api/recipe-test/recipe-content` | MongoDB `FTP_STATUS`, FTP, SQLite `file_versions` (fallback) | — |
+| GET | `/api/recipe-test/recipe-source-list` | MongoDB `FTP_STATUS`, FTP, SQLite `equipment_inventory` + `file_versions` | — |
+| GET | `/api/recipe-test/history` | JSONL `recipe_action_history.jsonl` | — |
+| POST | `/api/recipe-test/cas/save` | — | 인메모리 `CAS_CACHE` |
+| POST | `/api/recipe-test/cas/persist` | MongoDB `FTP_STATUS`, FTP, 인메모리 `CAS_CACHE` | FTP, JSONL |
+| POST | `/api/recipe-test/job/save` | — | 인메모리 `JOB_CACHE` |
+| POST | `/api/recipe-test/job/persist` | MongoDB `FTP_STATUS`, FTP, 인메모리 `JOB_CACHE` | FTP, JSONL |
+| POST | `/api/recipe-test/recipe/clone` | MongoDB `FTP_STATUS`, FTP | FTP, JSONL |
+| POST | `/api/recipe-test/file/rename` | MongoDB `FTP_STATUS`, FTP | FTP, Shadow 파일, JSONL |
+| POST | `/api/recipe-test/file/delete` | MongoDB `FTP_STATUS` | FTP, Shadow 파일, JSONL |
+| POST | `/api/recipe-test/transfer` | MongoDB `FTP_STATUS`, FTP (source) | FTP (target 설비들), JSONL |
+| GET | `/api/recipe-inventory/entries` | SQLite `equipment_inventory` | — |
+| GET | `/api/recipe-inventory/failures` | SQLite `inventory_failures` | — |
+| GET | `/api/recipe-inventory/latest-version` | SQLite `file_versions` | — |
+| GET | `/api/recipe-inventory/state` | SQLite `inventory_state` | — |
+
+---
+
+## 7. Frontend 화면과 데이터 흐름
+
+> 소스: `frontend/src/features/recipe_test/api/recipeTestApi.ts`, `RecipeTestPage.vue`, `MyHistoryPage.vue`
+
+### 7.1 RecipeTestPage (`/recipe-test`)
+
+```
+화면 진입
+  └─ [자동] GET /api/recipe-test/eqp-options
+       └─ PG eqp_info + sdwt_info → Line/Team/EqpId 드롭다운 채움
+
+[Load 버튼 클릭]
+  └─ POST /api/recipe-test/load {line, team, eqpId}
+       ├─ PG: 설비 모델·제조사 정보 조회
+       ├─ MongoDB: FTP 인증 조회
+       ├─ FTP: CAS 파일 목록 (LIST)
+       ├─ FTP: JOB 파일 목록 (LIST)
+       └─ SQLite: equipment_inventory (캐시 보조)
+       → casList, jobList, recipeList 프론트 상태에 저장
+
+[CAS 파일 클릭]
+  └─ GET /api/recipe-test/cas-content?eqpId=X&casId=Y
+       ├─ 인메모리 CAS_CACHE 확인 (hit → 즉시 반환)
+       └─ FTP: RETR {cas_file} → parse_cas_slots() → 슬롯 테이블 렌더
+
+[JOB 클릭]
+  └─ GET /api/recipe-test/job-content?eqpId=X&jobId=Y
+       ├─ 인메모리 JOB_CACHE 확인
+       └─ FTP: RETR {job_file} → parse_job_text() → Polisher/Cleaner 구조 렌더
+
+[레시피 이름 클릭]
+  └─ GET /api/recipe-test/recipe-content?eqpId=X&recipeId=RCP_SRC::sourceKind::name
+       ├─ MongoDB: FTP 인증
+       ├─ FTP: RETR {recipe_file} → pol_con_decoder / text_parser → preview 렌더
+       └─ FTP 실패 시: SQLite file_versions → preview_json fallback
+
+[편집 모드 → Save]
+  └─ POST /api/recipe-test/cas/save 또는 job/save (인메모리 캐시에만 저장)
+
+[편집 모드 → Persist]
+  └─ POST /api/recipe-test/cas/persist 또는 job/persist
+       ├─ 인메모리 캐시 → FTP: STOR
+       └─ JSONL: append_history_entry()
+
+[Transfer Cart → Move]
+  └─ POST /api/recipe-test/transfer
+       ├─ FTP: RETR (source 설비)
+       ├─ FTP: STOR × N (target 설비들)
+       └─ JSONL: 항목당 이력 append
+```
+
+### 7.2 MyHistoryPage (`/history`)
+
+```
+화면 진입
+  └─ GET /api/recipe-test/history?limit=500
+       └─ JSONL 전체 읽기 → 최신순 정렬 → 최대 500건 반환 → 테이블 렌더
+```
+
+---
+
+## 8. 파일/FTP/외부 데이터와 DB 저장 흐름
+
+### 8.1 백그라운드 워커 전체 흐름
+
+> 소스: `backend/tools/recipe_inventory_worker.py`, `backend/app/services/recipe_inventory_sync.py`
+
+```
+[매 cycle 시작] (기본 --interval-sec=5)
+  │
+  ▼ 1. PostgreSQL
+  load_lk_model_eqps()
+  └─ eqp_info INNER JOIN sdwt_info
+     WHERE prc_group IS NOT NULL AND eqp_model_bucket='lk_model'
+  → [eqpId, ...] 리스트
+
+  │
+  ▼ 2. ThreadPoolExecutor (--concurrency=10)
+  ─────────── 설비당 병렬 실행 ───────────
+  │
+  ▼ 3. MongoDB
+  load_eqp_ftp_credentials(eqp_id)
+  └─ ADDCMP.FTP_STATUS.find_one({EQPID: eqp_id})
+  → {host, user, password}
+
+  │
+  ▼ 4. sync_equipment_inventory_once(eqp_id, ftp_ip, ...)
+     각 MONITORED_SOURCE_CONFIG 경로(8가지) 순회:
+
+     4a. FTP LIST (인메모리 TTL 캐시 3초)
+     _list_live_entries_cached() → 파일명·수정일시·크기
+
+     4b. SQLite equipment_inventory
+     reconcile_inventory_entries()
+     ├─ 신규/변경: INSERT OR REPLACE
+     └─ 사라진 파일: UPDATE live_present=0, deleted_at=NOW
+
+     4c. 파일 변경 감지
+     _needs_refresh_from_live()
+     └─ VM 메타 JSON vs FTP 수정일시·크기 비교
+     └─ 다르면 → 5 실행
+
+  │
+  ▼ 5. cache_recipe_file_from_live()
+     5a. FTP: RETR → bytes
+     5b. build_recipe_preview_from_bytes() → preview dict
+     5c. save_vm_file()
+         └─ VM 파일스토어: bytes 저장 + .meta.json 저장
+     5d. store_file_version()
+         ├─ raw bytes → recipe_cache/raw/{eqp_id}/{hash12}/{stamp_hash.ext.bin}
+         ├─ SQLite file_versions: INSERT
+         └─ SQLite equipment_inventory: latest_version_id 갱신
+
+  │
+  ▼ 6. 실패 처리
+  mark_inventory_failure()
+  └─ SQLite inventory_failures: INSERT
+
+  │
+  ▼ 7. 상태 갱신
+  touch_inventory_state()
+  └─ SQLite inventory_state: UPSERT
+     └─ hash 변경 또는 file_count 변경 시 revision +1
+```
+
+### 8.2 RMS 클라우드 보호 목록 갱신 흐름
+
+> 소스: `backend/app/RMS/RMS_down.py`, `run_RMS.sh`
+
+```
+[수동 실행 — 확인 필요: 자동 스케줄 여부]
+  │
+  ▼ bigdataquery.getData()  (사내 전용 라이브러리)
+  └─ ees_ds_eai.rms_rcp_mst_rms 테이블
+     WHERE ext IN (pol, con, meg, br, drpr)
+       AND rcp_id NOT LIKE 'TT%' AND NOT LIKE 'RW%'
+       AND impala_insert_time = 오늘
+       AND line NOT IN ('A1','A2','B1','AB',...)
+  → DISTINCT rcp_id 목록
+
+  │
+  ▼ DataFrame 병합 → CSV 저장
+  └─ backend/app/data/cloud_protected_files.csv
+
+  │  [런타임 — API/워커 요청 시]
+  ▼ load_cloud_protected_recipe_ids()
+  └─ CSV 읽기 (mtime 변경 시만 재로드, 인메모리 캐시)
+  → is_cloud_protected_file(name) → bool
+```
+
+---
+
+## 9. Mermaid ERD 다이어그램
+
+```mermaid
+erDiagram
+    %% ── SQLite: recipe_cache.sqlite3 ──
+
+    equipment_inventory {
+        TEXT eqp_id PK
+        TEXT source_path PK
+        TEXT name PK
+        TEXT ext
+        TEXT modified_at
+        TEXT size
+        TEXT last_live_modified_at
+        TEXT last_live_size
+        TEXT last_cache_refresh_at
+        INTEGER live_present
+        TEXT first_seen_at
+        TEXT last_seen_at
+        TEXT deleted_at
+        INTEGER latest_version_id "→ file_versions(논리적 FK)"
+        INTEGER cloud_protected
+        INTEGER retain_cached
+    }
+
+    file_versions {
+        INTEGER version_id PK
+        TEXT eqp_id
+        TEXT source_path
+        TEXT name
+        TEXT ext
+        TEXT modified_at
+        TEXT size
+        TEXT captured_at
+        TEXT capture_reason
+        TEXT storage_path
+        TEXT file_hash
+        TEXT preview_json
+        TEXT metadata_json
+    }
+
+    inventory_failures {
+        INTEGER failure_id PK
+        TEXT eqp_id
+        TEXT source_path
+        TEXT stage
+        TEXT reason
+        TEXT created_at
+        INTEGER resolved
+    }
+
+    inventory_state {
+        TEXT eqp_id PK
+        INTEGER revision
+        TEXT inventory_hash
+        INTEGER file_count
+        TEXT last_sync_at
+        TEXT last_changed_at
+        TEXT last_error
+    }
+
+    %% ── PostgreSQL (외부, 추론) ──
+
+    eqp_info {
+        TEXT eqp_id PK
+        TEXT sdwt_name FK
+        TEXT eqp_model
+        TEXT maker_name
+        TEXT eqp_model_bucket
+        TEXT prc_group
+        TEXT line_id
+    }
+
+    sdwt_info {
+        TEXT sdwt_name PK
+        TEXT site
+    }
+
+    %% ── MongoDB (외부, 추론) ──
+
+    FTP_STATUS {
+        ObjectId _id PK
+        TEXT EQPID
+        TEXT FTP_SERVER
+        TEXT FTP_ID
+        TEXT FTP_PW
+    }
+
+    %% ── JSONL 이력 ──
+
+    HistoryEntry {
+        TEXT actorName
+        TEXT actorTeam
+        TEXT fromEqpId
+        TEXT action
+        TEXT toEqpId
+        TEXT createdAt
+        TEXT itemKind
+        TEXT sourceName
+        TEXT targetName
+        TEXT recipeName
+        TEXT requestId
+        TEXT status
+        TEXT reason
+        TEXT detail
+    }
+
+    %% ── SQLite 내부 관계 ──
+    equipment_inventory ||--o| file_versions : "latest_version_id (논리적 FK)"
+    equipment_inventory }o--|| inventory_state : "eqp_id"
+    equipment_inventory ||--o{ inventory_failures : "eqp_id + source_path"
+
+    %% ── PostgreSQL 내부 관계 ──
+    eqp_info }o--|| sdwt_info : "sdwt_name"
+
+    %% ── 논리적 교차 DB 관계 (추론) ──
+    eqp_info ||--o| FTP_STATUS : "eqp_id = EQPID (추론)"
+    eqp_info ||--o{ equipment_inventory : "eqp_id (논리)"
+    eqp_info ||--o{ HistoryEntry : "eqp_id = from/toEqpId (논리)"
+```
+
+---
+
+## 10. 확인 필요 관계
+
+| # | 항목 | 근거 | 상태 |
+|---|------|------|------|
+| 1 | `equipment_inventory.latest_version_id` → `file_versions.version_id` | 컬럼 존재 + `store_file_version()`에서 갱신. 단 SQLite FK 제약 없음 | **논리적 FK 확인, 제약 없음** |
+| 2 | `eqp_info.eqp_id` = `FTP_STATUS.EQPID` | `load_eqp_ip(eqp_id)` 호출 시 MongoDB에서 `EQPID`로 조회 | **추론 — 1:1 보장 여부 확인 필요** |
+| 3 | `eqp_info.eqp_model_bucker` vs `eqp_model_bucket` | 4개 쿼리 폴백 구조로 두 컬럼명 모두 시도 | **구버전 DB 오타 컬럼 여부 확인 필요** |
+| 4 | `core.recipe_unit` 테이블 존재 여부 | `main.py` SELECT 기반 — 현재 메인 라우터에서 미사용 | **실제 테이블 존재 확인 필요** |
+| 5 | `recipe_history.sqlite3` (`backend/app/data/`) 용도 | 파일은 존재하나 코드에서 이 경로 참조 없음 | **레거시 여부 확인 필요** |
+| 6 | `HistoryEntry.actorName` 신뢰도 | 서버 측 인증 없이 프론트가 넘긴 값 그대로 기록 | **보안 이슈 — 위조 가능** |
+| 7 | `inventory_failures.resolved` 자동 해제 시점 | `resolve_inventory_failures()`가 `reconcile_inventory_entries()` 성공 시 호출됨 | **UI에서 수동 해제 불가 여부 확인 필요** |
+| 8 | VM 메타 JSON 동적 필드 목록 | `save_vm_file(metadata=…)` 으로 `meta.update()` — 런타임에 필드 추가 가능 | **실제 저장 필드 목록 확인 필요** |
+| 9 | `RMS_down.py` 실행 주기 | `run_RMS.sh` 존재하나 cron 설정 여부 미확인 | **자동 스케줄 여부 확인 필요** |
+
+---
+
+## 11. DB 설계상 문제점
+
+### 11.1 SQLite
+
+| 문제 | 위치 | 영향 |
+|------|------|------|
+| **FK 제약 없음** | `equipment_inventory.latest_version_id` → `file_versions` | 버전 삭제 시 참조 무결성 깨짐 가능 |
+| **모든 날짜·크기를 TEXT로 저장** | 전 테이블 `modified_at`, `size`, `created_at` 등 | 범위 쿼리·정렬 시 문자열 비교 → 포맷 혼재 시 오작동 가능 |
+| **영속 경로 미보장** | `tempdir` 하위 저장 (`temp_file_store.py:LOCAL_EDIT_BASE`) | OS 재부팅·tmpfs 교체 시 캐시 전체 소실 |
+| **명시적 트랜잭션 없음** | `reconcile_inventory_entries()`, `store_file_version()` 별도 커넥션 | 워커 중단 시 partial write 가능 |
+| **스키마 버전 관리 없음** | `ensure_schema()` + ALTER 패치 방식 | 컬럼 삭제·타입 변경·인덱스 변경 불가 |
+| **JSONL 이력 파일 무한 증가** | `history_service.py:list_history_entries()` 전체 스캔 | 파일 크기 증가 시 읽기 성능 저하 |
+| **인메모리 캐시 TTL 없음** | `BOOTSTRAP_CACHE`, `CAS_CACHE`, `JOB_CACHE` 등 | 설비 데이터 변경 시 무효화 불가, 멀티프로세스 비공유 |
+
+### 11.2 PostgreSQL / MongoDB
+
+| 문제 | 위치 | 영향 |
+|------|------|------|
+| **컬럼명 오타 폴백 4회 시도** | `load_eqp_master_options()` 내 4개 쿼리 순차 실행 | 매 `eqp-options` 요청마다 최대 4회 DB 쿼리 |
+| **MongoDB 커넥션 풀 없음** | `ftp_credentials.py:load_eqp_ip()` | 요청마다 `MongoClient()` 생성·해제 — 오버헤드 |
+| **SQLAlchemy Engine 매 호출 생성** | `recipe_test_impl.py:load_eqp_master_options()` | 요청마다 `create_engine()` — 커넥션 풀 재초기화 |
+
+---
+
+## 12. 인덱스 / 정규화 / 트랜잭션 개선 제안
+
+### 12.1 인덱스 개선
+
+| 테이블 | 현재 인덱스 | 추가 제안 | 이유 |
+|--------|------------|-----------|------|
+| `file_versions` | `(eqp_id, source_path, name, modified_at)` | `(eqp_id, source_path, name, version_id DESC)` | 최신 버전 조회(`ORDER BY version_id DESC LIMIT 1`) 패턴에 최적화 |
+| `equipment_inventory` | PK + `(eqp_id, source_path)` | `(eqp_id, live_present)` 추가 | 라이브 파일만 필터 조회 빈도 높음 |
+| `inventory_failures` | `(eqp_id, resolved, created_at)` | 현행 유지 | 현재 쿼리 패턴(`WHERE resolved=0 ORDER BY created_at DESC`)에 적합 |
+
+### 12.2 날짜 타입 정규화
+
+```sql
+-- 현재: TEXT ("26-04-28 08:15AM" 형식 혼재 가능)
+modified_at TEXT
+
+-- 개선안 A: ISO 8601 강제 정규화 (YYYY-MM-DD HH:MM:SS) — 현재 코드와 호환
+-- 개선안 B: REAL (Unix timestamp) — 범위 쿼리·정렬 성능 향상
+-- SQLite의 strftime() 활용 또는 Python 레이어에서 정규화
+```
+
+### 12.3 트랜잭션 원자성 개선
+
+```python
+# 현재: store_file_version()과 touch_inventory_state()가 별도 커넥션 → 원자성 없음
+# 워커 중단 시 file_versions에 INSERT됐으나 inventory_state 미갱신 상태 가능
+
+# 개선: WAL 모드 활성화 (동시 읽기 성능) + 단일 커넥션으로 묶기
+conn.execute("PRAGMA journal_mode=WAL")
+```
+
+### 12.4 커넥션 풀링 개선
+
+```python
+# 현재: 요청마다 MongoClient() 생성
+client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000)
+
+# 개선: FastAPI lifespan으로 앱 시작 시 싱글턴 클라이언트 관리
+# create_engine()도 모듈 수준 싱글턴으로 이동 (SQLAlchemy 커넥션 풀 활용)
+_engine = create_engine(POSTGRES_URL, pool_size=5, max_overflow=2)
+```
+
+### 12.5 JSONL → SQLite 이관 검토
+
+```
+현재: recipe_action_history.jsonl (append-only, 전체 파일 읽기)
+개선: SQLite 별도 테이블로 이관
+
+장점:
+  - 인덱스 기반 필터링 (actorTeam, action, fromEqpId, createdAt 범위)
+  - LIMIT/OFFSET 페이지네이션 지원
+  - 파일 크기 무한 증가 문제 해소
+  - 기존 recipe_cache.sqlite3에 통합 가능
+```
+
+### 12.6 스키마 마이그레이션 도입
+
+```
+현재: ensure_schema()에서 PRAGMA table_info로 컬럼 존재 확인 후 ALTER
+  → 컬럼 삭제·타입 변경·인덱스 변경 대응 불가
+
+개선: version 테이블 도입 또는 Alembic 적용
+  CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+  → 앱 시작 시 현재 버전 확인 후 순차 마이그레이션 실행
+```

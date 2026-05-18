@@ -100,16 +100,16 @@ def _format_dual_spray(onoff: str, rate: str) -> str:
 
 
 def _format_spray_flow(block: str) -> str:
-    spray_both = str(recipe_colon_value(block, "Spray Both", "")).strip().lower()
+    decay_both = str(recipe_colon_value(block, "Spray Both", "")).strip().lower()
     chem1 = format_float_text(recipe_colon_value(block, "Chem 1 Flow Rate", ""), 0)
     chem2 = format_float_text(recipe_colon_value(block, "Chem 2 Flow Rate", ""), 0)
     diw = format_float_text(recipe_colon_value(block, "DIW Spray Flow Rate", ""), 0)
 
-    if spray_both in {"diw", "water"}:
+    if decay_both in {"diw", "water"}:
         return f"DIW only: {diw} ml/min" if diw else "DIW only"
-    if spray_both in {"chema", "chem 1", "chem1"}:
+    if decay_both in {"chema", "chem 1", "chem1"}:
         return f"Chem 1 only: {chem1} ml/min" if chem1 else "Chem 1 only"
-    if spray_both in {"chemb", "chem 2", "chem2"}:
+    if decay_both in {"chemb", "chem 2", "chem2"}:
         return f"Chem 2 only: {chem2} ml/min" if chem2 else "Chem 2 only"
     if chem1 and chem2:
         return f"Chem 1: {chem1} ml/min / Chem 2: {chem2} ml/min"
@@ -239,7 +239,14 @@ def create_no_preview_recipe(recipe_id: str, recipe_name: str, modified_at: str,
     }
 
 
-def build_recipe_preview_from_bytes(recipe_id: str, recipe_name: str, modified_at: str, source_kind: str, recipe_bytes: bytes, preview_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def build_recipe_preview_from_bytes(
+    recipe_id: str, 
+    recipe_name: str, 
+    modified_at: str, 
+    source_kind: str, 
+    recipe_bytes: bytes, 
+    preview_context: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     lower_name = recipe_name.lower()
 
     if lower_name.endswith('.pol') or lower_name.endswith('.con'):

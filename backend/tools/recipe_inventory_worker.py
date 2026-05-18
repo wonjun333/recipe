@@ -33,6 +33,7 @@ def run_one(eqp_id: str) -> dict:
 
 
 def main() -> None:
+    """웹 백엔드와 분리해서 실행하는 inventory/download worker."""
     args = parse_args()
     ensure_schema()
     while True:

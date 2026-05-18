@@ -15,7 +15,6 @@ HISTORY_DIR = Path(LOCAL_EDIT_BASE) / 'history'
 HISTORY_FILE = HISTORY_DIR / 'recipe_action_history.jsonl'
 HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
-
 @dataclass
 class HistoryEntry:
     actorName: str
@@ -33,10 +32,8 @@ class HistoryEntry:
     reason: str = ''
     detail: str = ''
 
-
 def _normalize_text(value: Any) -> str:
     return str(value or '').strip()
-
 
 def append_history_entry(**kwargs: Any) -> dict[str, Any]:
     entry = HistoryEntry(
@@ -59,7 +56,6 @@ def append_history_entry(**kwargs: Any) -> dict[str, Any]:
     with HISTORY_FILE.open('a', encoding='utf-8') as fp:
         fp.write(json.dumps(asdict(entry), ensure_ascii=False) + '\n')
     return asdict(entry)
-
 
 def list_history_entries(limit: int = 500) -> list[dict[str, Any]]:
     if not HISTORY_FILE.exists():

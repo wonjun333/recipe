@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
 from pymongo import MongoClient
 
 from app.settings import mongo_url, recipe_use_mock
 
+from app.config import MONGO_URL
 
 @dataclass(frozen=True)
 class FtpCredential:
@@ -13,13 +13,9 @@ class FtpCredential:
     user: str
     password: str
 
-
 def load_eqp_ip(eqp_id: str) -> tuple[str, str, str]:
-    if recipe_use_mock():
-        return ("127.0.0.1", "mock-user", "mock-password")
-
     client = MongoClient(
-        mongo_url(),
+        "mongodb://10.173.128.185:27017/",
         serverSelectionTimeoutMS=3000,
     )
     try:
@@ -53,7 +49,6 @@ def load_eqp_ip(eqp_id: str) -> tuple[str, str, str]:
         return ftp_ip, ftp_id, ftp_pw
     finally:
         client.close()
-
 
 def load_eqp_credential(eqp_id: str) -> FtpCredential:
     ftp_ip, ftp_id, ftp_pw = load_eqp_ip(eqp_id)

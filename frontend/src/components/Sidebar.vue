@@ -13,8 +13,28 @@ import { RouterLink } from 'vue-router'
 </script>
 
 <style scoped>
-.sidebar { width: 240px; border-right: 1px solid #ccc; padding: 12px; box-sizing: border-box; }
-.nav { display: flex; flex-direction: column; gap: 8px; }
-.nav-item { text-decoration: none; color: #333; padding: 6px 8px; border-radius: 4px; }
-.nav-item.router-link-active { background: #007acc; color: #fff; }
+.sidebar {
+  width: 240px;
+  border-right: 1px solid #ccc;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-item {
+  text-decoration: none;
+  color: #333;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.nav-item.router-link-active {
+  background: #007acc;
+  color: #fff;
+}
 </style>

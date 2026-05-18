@@ -155,7 +155,22 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
                 (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size, last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at, latest_version_id, cloud_protected, retain_cached)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?)
                 """,
-                (eqp_id, norm_source, name, ext, modified_at, size, modified_at, size, prev_cache_refresh, first_seen_at, seen_at, latest_version_id, 1 if protected else 0, retain_cached),
+                (
+                    eqp_id,
+                    norm_source,
+                    name,
+                    ext,
+                    modified_at,
+                    size,
+                    modified_at,
+                    size,
+                    prev_cache_refresh,
+                    first_seen_at,
+                    seen_at,
+                    latest_version_id,
+                    1 if protected else 0,
+                    retain_cached,
+                ),
             )
         stale_rows = conn.execute(
             'SELECT name, cloud_protected, retain_cached FROM equipment_inventory WHERE eqp_id=? AND source_path=?',
@@ -237,7 +252,17 @@ def _save_raw_bytes(eqp_id: str, source_path: str, name: str, modified_at: str, 
     return str(target)
 
 
-def store_file_version(eqp_id: str, source_path: str, name: str, modified_at: str, size: str, file_bytes: bytes, preview_payload: dict[str, Any] | None, capture_reason: str = 'worker', metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def store_file_version(
+    eqp_id: str,
+    source_path: str,
+    name: str,
+    modified_at: str,
+    size: str,
+    file_bytes: bytes,
+    preview_payload: dict[str, Any] | None,
+    capture_reason: str = 'worker',
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     ensure_schema()
     norm_source = _norm_path(source_path)
     digest = hashlib.sha1(file_bytes).hexdigest()
@@ -252,7 +277,12 @@ def store_file_version(eqp_id: str, source_path: str, name: str, modified_at: st
             (eqp_id, source_path, name, ext, modified_at, size, captured_at, capture_reason, storage_path, file_hash, preview_json, metadata_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (eqp_id, norm_source, name, ext, modified_at, size, captured_at, capture_reason, storage_path, digest, json.dumps(preview_payload, ensure_ascii=False) if preview_payload is not None else None, json.dumps(metadata or {}, ensure_ascii=False)),
+            (
+                eqp_id, norm_source, name, ext, modified_at, size, captured_at, capture_reason,
+                storage_path, digest,
+                json.dumps(preview_payload, ensure_ascii=False) if preview_payload is not None else None,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
         )
         version_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
         row = conn.execute(
@@ -267,15 +297,32 @@ def store_file_version(eqp_id: str, source_path: str, name: str, modified_at: st
         meta = metadata or {}
         cloud_protected = 1 if bool(meta.get('cloudProtected')) else prev_cloud
         retain_cached = 1 if (cloud_protected or prev_retain) else 0
+
         new_live_mod = str(meta.get('liveModifiedAt') or modified_at or prev_live_mod or '').strip()
         new_live_size = str(meta.get('liveSize') or size or prev_live_size or '').strip()
+
         conn.execute(
             """
             INSERT OR REPLACE INTO equipment_inventory
             (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size, last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at, latest_version_id, cloud_protected, retain_cached)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?)
             """,
-            (eqp_id, norm_source, name, ext, modified_at, size, new_live_mod, new_live_size, captured_at, first_seen_at, captured_at, version_id, cloud_protected, retain_cached),
+            (
+                eqp_id,
+                norm_source,
+                name,
+                ext,
+                modified_at,
+                size,
+                new_live_mod,
+                new_live_size,
+                captured_at,
+                first_seen_at,
+                captured_at,
+                version_id,
+                cloud_protected,
+                retain_cached,
+            ),
         )
         conn.commit()
     finally:
@@ -343,7 +390,8 @@ def list_latest_versions(eqp_id: str, source_path: str | None = None, exts: list
          AND latest.name = fv.name
          AND latest.max_version_id = fv.version_id
         """
-        rows = conn.execute(sql, (eqp_id,)).fetchall()
+        params: list[Any] = [eqp_id]
+        rows = conn.execute(sql, tuple(params)).fetchall()
         allowed = {str(x).lower() for x in (exts or [])}
         results: list[dict[str, Any]] = []
         target_path = _norm_path(source_path) if source_path is not None else None
@@ -378,7 +426,10 @@ def mark_inventory_failure(eqp_id: str, source_path: str, stage: str, reason: st
     ensure_schema()
     conn = _connect()
     try:
-        conn.execute('INSERT INTO inventory_failures (eqp_id, source_path, stage, reason, created_at, resolved) VALUES (?, ?, ?, ?, ?, 0)', (str(eqp_id or '').strip(), _norm_path(source_path), str(stage or '').strip(), str(reason or '').strip(), now_ts()))
+        conn.execute(
+            'INSERT INTO inventory_failures (eqp_id, source_path, stage, reason, created_at, resolved) VALUES (?, ?, ?, ?, ?, 0)',
+            (str(eqp_id or '').strip(), _norm_path(source_path), str(stage or '').strip(), str(reason or '').strip(), now_ts()),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -401,8 +452,19 @@ def list_open_failures(limit: int = 500) -> list[dict[str, Any]]:
     ensure_schema()
     conn = _connect()
     try:
-        rows = conn.execute('SELECT * FROM inventory_failures WHERE resolved=0 ORDER BY created_at DESC, failure_id DESC LIMIT ?', (max(1, int(limit or 500)),)).fetchall()
-        return [{'failureId': row['failure_id'], 'eqpId': row['eqp_id'], 'sourcePath': row['source_path'], 'stage': row['stage'], 'reason': row['reason'], 'createdAt': row['created_at'], 'resolved': bool(row['resolved'])} for row in rows]
+        rows = conn.execute(
+            'SELECT * FROM inventory_failures WHERE resolved=0 ORDER BY created_at DESC, failure_id DESC LIMIT ?',
+            (max(1, int(limit or 500)),),
+        ).fetchall()
+        return [{
+            'failureId': row['failure_id'],
+            'eqpId': row['eqp_id'],
+            'sourcePath': row['source_path'],
+            'stage': row['stage'],
+            'reason': row['reason'],
+            'createdAt': row['created_at'],
+            'resolved': bool(row['resolved']),
+        } for row in rows]
     finally:
         conn.close()
 
@@ -421,20 +483,48 @@ def get_inventory_state(eqp_id: str) -> dict[str, Any]:
     ensure_schema()
     conn = _connect()
     try:
-        row = conn.execute('SELECT eqp_id, revision, inventory_hash, file_count, last_sync_at, last_changed_at, last_error FROM inventory_state WHERE eqp_id=?', (eqp_id,)).fetchone()
+        row = conn.execute(
+            'SELECT eqp_id, revision, inventory_hash, file_count, last_sync_at, last_changed_at, last_error FROM inventory_state WHERE eqp_id=?',
+            (eqp_id,),
+        ).fetchone()
         if not row:
-            return {'eqpId': eqp_id, 'revision': 0, 'inventoryHash': '', 'fileCount': 0, 'lastSyncAt': '', 'lastChangedAt': '', 'lastError': ''}
-        return {'eqpId': str(row['eqp_id']), 'revision': int(row['revision'] or 0), 'inventoryHash': str(row['inventory_hash'] or ''), 'fileCount': int(row['file_count'] or 0), 'lastSyncAt': str(row['last_sync_at'] or ''), 'lastChangedAt': str(row['last_changed_at'] or ''), 'lastError': str(row['last_error'] or '')}
+            return {
+                'eqpId': eqp_id,
+                'revision': 0,
+                'inventoryHash': '',
+                'fileCount': 0,
+                'lastSyncAt': '',
+                'lastChangedAt': '',
+                'lastError': '',
+            }
+        return {
+            'eqpId': str(row['eqp_id']),
+            'revision': int(row['revision'] or 0),
+            'inventoryHash': str(row['inventory_hash'] or ''),
+            'fileCount': int(row['file_count'] or 0),
+            'lastSyncAt': str(row['last_sync_at'] or ''),
+            'lastChangedAt': str(row['last_changed_at'] or ''),
+            'lastError': str(row['last_error'] or ''),
+        }
     finally:
         conn.close()
 
 
-def touch_inventory_state(eqp_id: str, changed: bool = False, error: str = '', inventory_hash: str = '', file_count: int = 0) -> dict[str, Any]:
+def touch_inventory_state(
+    eqp_id: str,
+    changed: bool = False,
+    error: str = '',
+    inventory_hash: str = '',
+    file_count: int = 0,
+) -> dict[str, Any]:
     ensure_schema()
     sync_at = now_ts()
     conn = _connect()
     try:
-        row = conn.execute('SELECT revision, inventory_hash, file_count, last_changed_at FROM inventory_state WHERE eqp_id=?', (eqp_id,)).fetchone()
+        row = conn.execute(
+            'SELECT revision, inventory_hash, file_count, last_changed_at FROM inventory_state WHERE eqp_id=?',
+            (eqp_id,),
+        ).fetchone()
         prev_revision = int(row['revision']) if row else 0
         prev_hash = str(row['inventory_hash'] or '') if row else ''
         prev_count = int(row['file_count'] or 0) if row else 0
@@ -453,7 +543,15 @@ def touch_inventory_state(eqp_id: str, changed: bool = False, error: str = '', i
               last_changed_at=excluded.last_changed_at,
               last_error=excluded.last_error
             ''',
-            (eqp_id, next_revision, inventory_hash or prev_hash, int(file_count or prev_count), sync_at, last_changed_at, str(error or '')),
+            (
+                eqp_id,
+                next_revision,
+                inventory_hash or prev_hash,
+                int(file_count or prev_count),
+                sync_at,
+                last_changed_at,
+                str(error or ''),
+            ),
         )
         conn.commit()
         return get_inventory_state(eqp_id)

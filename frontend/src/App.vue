@@ -13,6 +13,12 @@ import TopBarNav from './components/TopBarNav.vue'
 </script>
 
 <style scoped>
-.app-shell{min-height:100vh;background:#f5f7fb;}
-.app-main{padding:10px 12px 16px;box-sizing:border-box;}
+.app-shell {
+  min-height: 100vh;
+  background: #f5f7fb;
+}
+.app-main {
+  padding: 10px 12px 16px;
+  box-sizing: border-box;
+}
 </style>

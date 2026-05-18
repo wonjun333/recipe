@@ -1,3 +1,85 @@
-<template><div v-if="open" class="w97-modal-overlay"><div class="w97-modal"><div class="w97-modal-titlebar" :class="{warn:tone==='warn'}"><div>{{ title }}</div></div><div class="w97-modal-body">{{ message }}</div><div class="w97-modal-actions"><button class="win-btn" @click="emit('yes')">Yes</button><button class="win-btn" @click="emit('no')">No</button></div></div></div></template>
-<script setup lang="ts">defineProps<{open:boolean;title:string;tone:'default'|'warn';message:string}>(); const emit=defineEmits<{(e:'yes'):void;(e:'no'):void}>()</script>
-<style scoped>.w97-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:10000}.w97-modal{width:420px;background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040}.w97-modal-titlebar{background:#0a246a;color:#fff;padding:6px 8px;font-weight:900}.w97-modal-titlebar.warn{background:#d97706}.w97-modal-body{padding:12px;font-weight:900}.w97-modal-actions{padding:0 12px 12px;display:flex;gap:8px;justify-content:flex-end}.win-btn{height:24px;background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;cursor:pointer}</style>
+<template>
+  <div v-if="open" class="w97-modal-overlay">
+    <div class="w97-modal">
+      <div class="w97-modal-titlebar" :class="{ warn: tone === 'warn' }">
+        <div class="w97-modal-title">{{ title }}</div>
+      </div>
+      <div class="w97-modal-body">{{ message }}</div>
+      <div class="w97-modal-actions">
+        <button class="win-btn" @click="emit('yes')">Yes</button>
+        <button class="win-btn" @click="emit('no')">No</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+defineProps<{
+  open: boolean
+  title: string
+  tone: 'default' | 'warn'
+  message: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'yes'): void
+  (e: 'no'): void
+}>()
+</script>
+
+<style scoped>
+.w97-modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.35);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index: 10000;
+}
+.w97-modal{
+  width: 420px;
+  background:#c0c0c0;
+  border-top:2px solid #fff;
+  border-left:2px solid #fff;
+  border-right:2px solid #404040;
+  border-bottom:2px solid #404040;
+}
+.w97-modal-titlebar{
+  background:#0a246a;
+  color:#fff;
+  padding:6px 8px;
+  font-weight:900;
+}
+.w97-modal-titlebar.warn{
+  background:#d97706;
+}
+.w97-modal-title{
+  font-weight:900;
+}
+.w97-modal-body{
+  padding:12px;
+  font-weight:900;
+}
+.w97-modal-actions{
+  padding:0 12px 12px 12px;
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+}
+.win-btn{
+  height:24px;
+  background:#c0c0c0;
+  border-top:2px solid #fff;
+  border-left:2px solid #fff;
+  border-right:2px solid #404040;
+  border-bottom:2px solid #404040;
+  cursor:pointer;
+}
+.win-btn:active{
+  border-top:2px solid #404040;
+  border-left:2px solid #404040;
+  border-right:2px solid #fff;
+  border-bottom:2px solid #fff;
+}
+</style>

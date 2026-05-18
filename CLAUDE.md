@@ -10,6 +10,9 @@
 
 ## 개발 환경 제약사항
 
+- **경로·인코딩**: `pathlib.Path` 사용, `encoding='utf-8'` 필수, 경로 길이 ≤ 260자. `windows-compatibility-check.py` 자동 검사 필수.
+- **배포 안정성**: 배포 전 `backup.bat` 준비, 롤백 절차 테스트 필수 (자세한 내용은 `docs/windows-deployment-guide.md` 참조).
+
 ### 사내/사외 네트워크 분리 구조
 
 이 프로젝트는 **사내 서버에서 운영**되는 시스템이다.

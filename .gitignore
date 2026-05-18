@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Env
+.env
+!.env.example
+
+# Test / cache
+.pytest_cache/
+*.sqlite3
+
+# Temp / VM store (runtime data)
+recipe_test_edit/
+recipe_cache/
+recipe_vm_store/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
