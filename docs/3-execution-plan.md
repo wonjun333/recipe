@@ -803,6 +803,288 @@
 
 ---
 
+## 13. Windows 배포 및 운영 환경 검증 (WD)
+
+> 목표: Mac→Ubuntu 개발 환경에서 Windows 최종 배포 환경으로 전환 시 발생할 수 있는 호환성 이슈를 사전 발굴하고, 안정적인 운영 모니터링·롤백 계획을 수립한다. Phase 3에서 본격 추진하되, 코드 호환성은 Phase 2부터 점검.
+
+### WD-01 — Windows 경로·인코딩 호환성 검증
+
+- **우선순위**: `High`
+- **작업 목표**: Windows 환경의 경로 구분자(역슬래시 vs 슬래시), 경로 길이 제한(260자), 인코딩(UTF-8 vs CP949), 줄바꿈(LF vs CRLF) 문제를 코드 리뷰로 사전 발굴한다.
+- **대상 파일**: 
+  - `backend/app/services/temp_file_store.py` (경로 처리)
+  - `backend/app/services/recipe_cache_store.py` (SQLite 경로, JSONL 파일)
+  - `backend/app/services/file_ops_service.py` (FTP 경로 정규화)
+  - `backend/tools/recipe_inventory_worker.py` (로그 경로)
+- **선행 조건**: EP-02 (LOCAL_EDIT_BASE 환경변수화) 완료
+- **완료 기준**:
+  - `os.path.join()` 또는 `pathlib.Path` 사용 확인 (경로 분리자 자동 처리)
+  - 경로 길이 260자 초과 케이스 처리 (예: 긴 설비명 + 깊은 폴더 구조)
+  - 파일 인코딩 명시 (open(..., encoding='utf-8'))
+  - JSONL 파일 CRLF 처리 (splitlines() 사용 확인)
+  - FTP 경로 정규화 (역슬래시 → 슬래시 통일)
+- **검증 방법**: 
+  - 코드 리뷰: `grep -n "os.path" / "Path(" / "open(" 패턴 확인
+  - 정적 분석: hardcoded 슬래시 (`"/tmp"`, `"C:\\"` 등) 탐지
+- **위험도**: 중간 (경로 처리 미흡 시 파일 생성 실패 또는 이력 손실)
+
+```
+- [ ] WD-01-a: temp_file_store.py 경로 처리 pathlib 또는 os.path.join 사용 여부 검증
+- [ ] WD-01-b: recipe_cache_store.py SQLite/JSONL 파일 경로 길이 260자 제한 영향도 검토
+- [ ] WD-01-c: JSONL 줄 파싱에서 CRLF 처리 (splitlines() 사용 여부 확인)
+- [ ] WD-01-d: file_ops_service.py FTP 경로 정규화 (pathlib.PurePath.as_posix() 또는 normpath 사용)
+- [ ] WD-01-e: 파일 읽기/쓰기 시 encoding='utf-8' 명시 여부 확인 및 보완
+```
+
+---
+
+### WD-02 — 배포 전 자동 호환성 검사 스크립트
+
+- **우선순위**: `Medium`
+- **작업 목표**: Windows 배포 전 자동 검사 스크립트를 작성하여 코드상 경로 이슈, 인코딩 선언 누락, hardcoded 절대 경로 등을 사전 발굴한다.
+- **대상 파일**: `backend/scripts/windows-compatibility-check.py` (신규)
+- **선행 조건**: 없음
+- **완료 기준**:
+  - 스크립트 실행 후 자동 검사:
+    1. hardcoded 슬래시 탐지 (`/tmp`, `/home` 등)
+    2. 파일 open() 시 encoding 명시 여부 (UTF-8 강제)
+    3. JSONL 파싱 시 `splitlines()` 사용 확인
+    4. FTP 경로 역슬래시 사용 탐지
+    5. `tempfile.gettempdir()` 사용 여부 (Windows temp 지원)
+  - 결과: CSV 또는 JSON 레포트로 고위험·중위험·저위험 분류
+- **검증 방법**: 스크립트 실행 후 발견된 이슈 목록 생성
+- **위험도**: 낮음
+
+```
+- [ ] WD-02: Windows 호환성 자동 검사 스크립트 작성 (경로, 인코딩, hardcoding)
+```
+
+---
+
+### WD-03 — Windows 배포 체크리스트 (초기 배포)
+
+- **우선순위**: `High`
+- **작업 목표**: 신규 Windows 환경에서 최초 배포 시 필요한 사전 준비 및 배포 단계를 마크다운 체크리스트로 정의한다.
+- **대상 파일**: `docs/deployment-windows.md` (신규)
+- **선행 조건**: EP-03 (Windows 기동 스크립트) 완료
+- **완료 기준**: 체크리스트 문서 작성. 신규 Windows 담당자가 문서만으로 배포 가능.
+- **체크리스트 샘플** (상세 내용은 문서에 포함):
+
+```markdown
+## Windows 초기 배포 체크리스트
+
+### Phase 1: 환경 준비 (선행 설치)
+- [ ] Python 3.10+ 설치 (python --version)
+- [ ] Node.js 18+ 설치 (node --version)
+- [ ] PostgreSQL 클라이언트 설치 (psql.exe 테스트)
+- [ ] Git 설치 (선택사항)
+
+### Phase 2: 디렉토리 구성
+- [ ] C:\ProgramData\RecipeRMS\ 생성 (데이터 디렉토리)
+- [ ] C:\ProgramData\RecipeRMS\logs\ 생성
+- [ ] C:\ProgramData\RecipeRMS\data\ 생성
+- [ ] C:\app\recipe\ 소스코드 배포
+
+### Phase 3: 백엔드 배포
+- [ ] python -m venv venv
+- [ ] venv\Scripts\pip.exe install -r requirements.txt
+- [ ] .env 파일 생성 및 사내 DB 자격증명 입력
+- [ ] netstat -an | findstr :8000 (포트 미사용 확인)
+- [ ] start.bat 실행 → http://localhost:8000/api/recipe-test/eqp-options 200 응답 확인
+
+### Phase 4: 프론트엔드 빌드
+- [ ] npm install
+- [ ] npm run build (dist 생성)
+- [ ] 정적 파일 배포 (FastAPI 또는 Nginx로 서빙)
+
+### Phase 5: 기능 검증
+- [ ] 설비 로드 (드롭다운 100+ 표시)
+- [ ] CAS/JOB/Recipe 조회 (FTP 성공)
+- [ ] 파일 편집 및 저장
+- [ ] 이력 조회
+- [ ] 캐시 히트 (2회 조회 시 응답 시간 비교)
+
+### Phase 6: Windows 서비스 등록 (선택)
+- [ ] NSSM 또는 Task Scheduler로 자동 시작 설정
+- [ ] 재부팅 후 서비스 자동 시작 확인
+
+### Phase 7: 모니터링 설정
+- [ ] Python logging config 활성화 (C:\ProgramData\RecipeRMS\logs\)
+- [ ] 에러 알림 설정 (선택)
+```
+
+- **위험도**: 낮음
+
+```
+- [ ] WD-03: Windows 배포 체크리스트 문서 작성 (docs/deployment-windows.md)
+```
+
+---
+
+### WD-04 — 성능 기준선 (Baseline) 설정
+
+- **우선순위**: `Medium`
+- **작업 목표**: Windows 배포 후 정상 운영 기준을 정량적으로 정의한다. 향후 성능 저하 감지 시 비교 대상.
+- **대상 파일**: 없음 (측정 및 문서화)
+- **선행 조건**: WD-03 (배포 완료)
+- **완료 기준**:
+  - 초기 배포 후 다음 메트릭 측정 및 기록:
+    1. **API 응답 시간**: 설비 100개 로드 시 `GET /api/recipe-test/eqp-options` < 2초
+    2. **캐시 효율**: 동일 설비 CAS 2회 연속 조회 시 2배 이상 빠름
+    3. **메모리**: 기동 후 기본값 (예: 100MB). 24시간 후 < 105MB (5% 증가 허용)
+    4. **FTP 동시 접근**: 사용자 5명 동시 조회 시 락 에러 0건
+    5. **워커 처리**: 인벤토리 동기화 1시간 내 완료
+
+```
+- [ ] WD-04: 초기 배포 후 성능 기준선 측정 및 기록
+```
+
+---
+
+### WD-05 — 운영 환경 모니터링·로깅 설정
+
+- **우선순위**: `High`
+- **작업 목표**: Windows 배포 후 지속적인 모니터링을 위해 로그 수집·로테이션을 정의한다.
+- **대상 파일**: 
+  - `backend/app/main.py` (logging 미들웨어 추가)
+  - `docs/monitoring-windows.md` (신규)
+- **선행 조건**: WD-03 (배포 완료), EH-01 (구조화 로깅) 완료 시 강화
+- **완료 기준**:
+  1. **로그 파일**: C:\ProgramData\RecipeRMS\logs\ 에 app.log, error.log 생성
+  2. **로테이션**: 14일 이상 로그 자동 삭제 (또는 아카이브)
+  3. **에러 분리**: ERROR 이상은 error.log에 별도 기록
+  4. **응답 시간**: 10초 이상 요청을 WARN 레벨로 기록
+
+```
+- [ ] WD-05: Python logging 구성 (파일 기반, 일일 로테이션, 에러 분리)
+```
+
+---
+
+### WD-06 — 데이터 백업 및 롤백 계획
+
+- **우선순위**: `High`
+- **작업 목표**: 배포 실패 또는 데이터 손상 시 빠른 복구를 위해 백업·롤백 절차를 정의한다.
+- **대상 파일**: 
+  - `docs/backup-restore-windows.md` (신규)
+  - `backend/scripts/backup.bat` (신규 — 자동화 선택)
+- **선행 조건**: WD-03 (배포 완료)
+- **완료 기준**:
+
+```markdown
+## Windows 백업 전략
+
+### 백업 대상
+1. **소스코드**: 배포 전 이전 버전 사본 유지 (C:\app\recipe-v1.0\, C:\app\recipe-v1.1\ 등)
+2. **SQLite 캐시**: daily snapshot (C:\ProgramData\RecipeRMS\backup\recipe_cache.sqlite3.2026-05-18)
+3. **JSONL 이력**: 월별 아카이브 (recipe_action_history.202605.jsonl)
+4. **.env 파일**: 암호화된 위치에 복사
+
+### 롤백 절차
+1. 서비스 중지 (start.bat 콘솔 종료 또는 작업 관리자)
+2. 이전 버전으로 변경 (C:\app\recipe-v1.0\으로 이동 또는 git checkout)
+3. 데이터 복구 (필요 시 SQLite/JSONL 백업에서 복사)
+4. 서비스 재시작
+
+### 자동화 (선택)
+- Task Scheduler로 daily 백업 스크립트 실행
+- 소요 시간: ~ 1분 (네트워크 드라이브에 저장 시 5분)
+```
+
+```
+- [ ] WD-06-a: 백업 전략 문서화 (소스, 데이터, 설정)
+- [ ] WD-06-b: 롤백 절차 정의 및 테스트 환경에서 연습
+- [ ] WD-06-c: 자동화 스크립트 작성 (backup.bat)
+```
+
+---
+
+### WD-07 — 사전 배포 최종 체크 (배포 게이트)
+
+- **우선순위**: `Medium`
+- **작업 목표**: 실제 Windows 배포 전 최종 점검을 통해 배포 리스크를 최소화한다.
+- **대상 파일**: 없음 (체크리스트)
+- **선행 조건**: ET-02 (Windows 호환성), WD-02 (자동 검사)
+- **완료 기준**:
+
+```markdown
+## 배포 전 최종 체크 (Go/No-Go Decision)
+
+### 코드 품질 (No-Go 기준)
+- [ ] WD-02 스크립트 실행 → 고위험 이슈 0건
+- [ ] 경로 hardcoding 0건
+- [ ] encoding 미지정 파일 I/O 0건
+
+### 테스트 완료
+- [ ] pytest mockup 전체 통과
+- [ ] Windows 환경에서 start.bat 기동 성공
+- [ ] GET /api/recipe-test/eqp-options → 200 응답
+- [ ] npm run build 성공
+
+### 배포 준비
+- [ ] .env.prod 파일 사내 DB 자격증명으로 작성
+- [ ] 백업 전략 수립 및 첫 백업 수행
+- [ ] 롤백 절차 테스트 완료 (테스트 환경)
+- [ ] 성능 기준선 기록 (WD-04)
+
+### 운영 준비
+- [ ] 로그 디렉토리 C:\ProgramData\RecipeRMS\logs\ 사전 생성 및 권한 설정
+- [ ] 에러 알림 채널 확인 (슬랙/이메일)
+- [ ] 운영 담당자 ON-CALL 연락처 확인
+```
+
+```
+- [ ] WD-07: 배포 전 최종 체크리스트 작성 및 확인
+```
+
+---
+
+### WD-08 — 배포 후 정기 리뷰 (Post-Deployment Review)
+
+- **우선순위**: `Medium`
+- **작업 목표**: 배포 후 1주, 1개월 시점에 정기적으로 시스템 상태를 검토하고 개선사항을 기록한다.
+- **대상 파일**: 없음 (정기 리뷰)
+- **선행 조건**: WD-03 (배포 완료) + 실제 운영 기간
+- **완료 기준**:
+
+```markdown
+## 배포 후 1주 점검 (Day 7)
+- [ ] 에러 로그 검토 (발생한 이슈 분류 및 우선순위)
+- [ ] 성능 메트릭 재측정 (응답 시간, 메모리 사용량)
+- [ ] 사용자 피드백 수집 (속도, UI 문제 등)
+- [ ] 긴급 버그 패치 판단
+
+## 배포 후 1개월 점검 (Day 30)
+- [ ] 전체 기능 재검증 (모든 시나리오 수동 테스트)
+- [ ] 데이터 일관성 확인 (SQLite, JSONL)
+- [ ] 캐시 효율 분석 (히트율 > 70% 목표)
+- [ ] FTP 연결 안정성 (실패율 < 1% 목표)
+- [ ] 백업 복구 테스트 (1회 실행)
+- [ ] 성능 기준선과 비교 (응답 시간 +20% 이상이면 최적화 필요)
+- [ ] 향후 개선사항 제안 (캐시 정책, 워커 주기 등)
+```
+
+```
+- [ ] WD-08: 배포 후 정기 리뷰 프로세스 정의 (1주, 1개월)
+```
+
+---
+
+## 전체 우선순위 요약 (WD 섹션 추가)
+
+| ID | 항목 | 우선순위 | Phase |
+|----|------|---------|-------|
+| WD-01 | Windows 경로·인코딩 호환성 검증 | High | Phase 2 |
+| WD-02 | 자동 호환성 검사 스크립트 | Medium | Phase 2 |
+| WD-03 | Windows 배포 체크리스트 | High | Phase 3 |
+| WD-04 | 성능 기준선 설정 | Medium | Phase 3 |
+| WD-05 | 모니터링·로깅 설정 | High | Phase 3 |
+| WD-06 | 백업 및 롤백 계획 | High | Phase 3 |
+| WD-07 | 배포 전 최종 체크 | Medium | Phase 3 |
+| WD-08 | 배포 후 정기 리뷰 | Medium | Phase 3+ |
+
+---
+
 ## 진행 금지 제약
 
 - `pol_con_decoder.py`, `pol_con_maps.py` 수정 절대 금지 (CLAUDE.md 명시)
