@@ -13,8 +13,8 @@
 | 저장소 | 종류 | 위치 | 역할 |
 |--------|------|------|------|
 | **SQLite** (`recipe_cache.sqlite3`) | 로컬 캐시 DB | `{tempdir}/recipe_test_edit/recipe_cache/` | 인벤토리·버전·실패·상태 캐시 |
-| **PostgreSQL** (`shared_db`) | 사내 DB (읽기 전용) | `10.173.132.124:12020` | 설비 마스터 |
-| **MongoDB** (`ADDCMP`) | 사내 DB (읽기 전용) | `10.173.128.185:27017` | FTP 인증 정보 |
+| **PostgreSQL** (`shared_db`) | 사내 DB (읽기 전용) | `.env`의 `POSTGRES_URL`로 관리 | 설비 마스터 |
+| **MongoDB** (`ADDCMP`) | 사내 DB (읽기 전용) | `.env`의 `MONGO_URL`로 관리 | FTP 인증 정보 |
 | **FTP** (설비별) | 사내 설비 파일서버 | 설비 IP:21 | Recipe 파일 실제 저장소 |
 | **JSONL** (`recipe_action_history.jsonl`) | 로컬 Append-only 로그 | `{tempdir}/recipe_test_edit/history/` | 작업 이력 |
 | **VM 파일스토어** | 로컬 파일시스템 | `{tempdir}/recipe_test_edit/recipe_vm_store/` | 바이너리 캐시 + 메타 JSON |

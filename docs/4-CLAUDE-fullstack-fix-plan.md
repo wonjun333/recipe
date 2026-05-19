@@ -511,8 +511,8 @@ Option B (권장 중기): SQLite로 이관 (ERD §12.5 권고)
    
    # .env.prod (사내 환경)
    MOCK_MODE=0
-   POSTGRES_URL=postgresql://...
-   MONGO_URL=mongodb://...
+   POSTGRES_URL=postgresql://<user>:<password>@<host>:<port>/<dbname>
+   MONGO_URL=mongodb://<host>:<port>/
 
 예상 기간: Phase 1은 4시간, Phase 2는 테스트 작성 진행형
 ```

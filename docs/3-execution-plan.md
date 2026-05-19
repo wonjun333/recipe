@@ -1183,8 +1183,8 @@ MONGO_URL=...
 
 # backend/.env (실환경 — 사내 Windows)
 MOCK_MODE=false                  # real 모드 활성화 (사내)
-POSTGRES_URL=postgresql://user:pass@pg-host:5432/recipe_db
-MONGO_URL=mongodb://mongo-host:27017/
+POSTGRES_URL=postgresql://<user>:<password>@<postgres-host>:<port>/<dbname>
+MONGO_URL=mongodb://<mongo-host>:<port>/
 LOCAL_EDIT_BASE=C:\rms_data      # Windows 영속 저장소
 ```
 
@@ -1259,10 +1259,10 @@ else:
 MOCK_MODE=false
 
 # PostgreSQL (사내 데이터베이스)
-POSTGRES_URL=postgresql://rms_user:${DB_PASSWORD}@pg-server.company.local:5432/recipe_db
+POSTGRES_URL=postgresql://<user>:${DB_PASSWORD}@<postgres-host>:<port>/<dbname>
 
 # MongoDB (사내 데이터베이스)
-MONGO_URL=mongodb://mongo-server.company.local:27017/
+MONGO_URL=mongodb://<mongo-host>:<port>/
 
 # 로컬 저장소 (Windows 경로)
 LOCAL_EDIT_BASE=C:\rms_data
@@ -1274,8 +1274,8 @@ LOG_LEVEL=INFO
 **`backend/.env.prod.example`** (Git 커밋 가능, 시크릿 마스킹):
 ```bash
 MOCK_MODE=false
-POSTGRES_URL=postgresql://rms_user:<password>@pg-server.company.local:5432/recipe_db
-MONGO_URL=mongodb://mongo-server.company.local:27017/
+POSTGRES_URL=postgresql://<user>:<password>@<postgres-host>:<port>/<dbname>
+MONGO_URL=mongodb://<mongo-host>:<port>/
 LOCAL_EDIT_BASE=C:\rms_data
 LOG_LEVEL=INFO
 ```

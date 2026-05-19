@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pymongo import MongoClient
 
-from app.settings import mongo_url, recipe_use_mock
-
 from app.config import MONGO_URL
 
 @dataclass(frozen=True)
@@ -15,7 +13,7 @@ class FtpCredential:
 
 def load_eqp_ip(eqp_id: str) -> tuple[str, str, str]:
     client = MongoClient(
-        "mongodb://10.173.128.185:27017/",
+        MONGO_URL,
         serverSelectionTimeoutMS=3000,
     )
     try:

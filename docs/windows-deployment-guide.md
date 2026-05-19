@@ -259,9 +259,9 @@ venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # 4. .env 파일 작성
-# Copy .env.example to .env 및 사내 DB 자격증명 입력
-# DATABASE_URL=postgresql://...
-# MONGO_URL=mongodb://...
+# Copy .env.example to .env 및 보안 채널로 받은 자격증명 입력
+# POSTGRES_URL=postgresql://<user>:<password>@<host>:<port>/<dbname>
+# MONGO_URL=mongodb://<host>:<port>/
 # SECRET_KEY=<random-secret>
 # LOCAL_EDIT_BASE=C:\ProgramData\RecipeRMS\data
 
