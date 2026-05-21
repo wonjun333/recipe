@@ -1,5 +1,7 @@
-import bigdataquery as bdq  
-import pandas as pd  
+from pathlib import Path
+
+import bigdataquery as bdq
+import pandas as pd
 
 # -------------------------------------------------  
 # 1) 조회할 확장자 리스트  
@@ -56,6 +58,6 @@ else:
 # -------------------------------------------------  
 # 6) CSV 저장  
 # -------------------------------------------------  
-output_path = "/root/project/recipe/backend/app/data/cloud_protected_files.csv"
+output_path = str(Path(__file__).resolve().parents[1] / 'data' / 'cloud_protected_files.csv')
 combined_df.to_csv(output_path, index=False, encoding='utf-8-sig')  
 print(f"CSV 파일 저장 완료 → {output_path}")

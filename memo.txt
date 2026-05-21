@@ -1,11 +1,32 @@
 codex --dangerously-bypass-approvals-and-sandbox
 claude --dangerously-skip-permissions -r
 
-고쳐야 할것 
-1. main.py에 서브라우터가등록되지 않음
-2. db 보안이슈 - 해결함
-3. 이력/캐시가 tempdir에 저장 - 시스템 재부팅시 작업 이력 및 인벤토리 캐시 소실 가능.
-4. 프론트 api 2개 미구현
+cd /home/dev/project/recipe/backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-/statusline create a multi-line status showing Model, Git branch, and CWD on the first line, Token In/Out/Cached/Total on the second line, and Ctx Used, Ctx, Session time, and Cost on the third line.
+cd /home/dev/project/recipe/frontend
+npm run build && npm run preview
 
+그럼 너와 소통하려면 나는 개발자도구에서 특정 tag나 class를 한번에 알고싶어. 어떻게 해야 빨리 class를 알수 있을까? 예를 들어 지금 분임조를 표시해주는 곳을 너와 대화하려면 어떻게 해야지 소통이될까?
+이걸 알아야지 너랑 front나 다른 기능을 개발할때 좋을것 같아.
+
+
+
+(function() {
+    console.log("✨ [시각적 요소 추적기] 활성화! 클릭 시 1초간 빨간 테두리가 표시됩니다.");  
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('#eruda') || e.target.tagName === 'HTML') return;        
+        const el = e.target;
+        
+        // 시각적 하이라이트 효과 (1초간 빨간 테두리)
+        const oldBorder = el.style.border;
+        el.style.border = '2px solid #FF0000';
+        setTimeout(() => { el.style.border = oldBorder; }, 1000);
+        
+        // 정보 출력
+        const tag = el.tagName.toLowerCase();
+        const id = el.id ? `#${el.id}` : '';
+        const cls = el.className && typeof el.className === 'string' ? `.${el.className.trim().split(/\s+/).join('.')}` : '';
+        console.log(`${tag}${id}${cls}`);
+    }, true);
+})();

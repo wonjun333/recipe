@@ -1,0 +1,7 @@
+dist/
+node_modules/
+src/**/*.vue.js
+src/main.js
+src/__init__.py
+src/features/recipe_test/api/*.js
+*.tsbuildinfo

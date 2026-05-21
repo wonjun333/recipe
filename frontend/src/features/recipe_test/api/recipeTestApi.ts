@@ -116,11 +116,18 @@ export type TransferResponse = { status: string; moved: TransferResultItem[]; fa
 export type HistoryEntry = { actorName: string; actorTeam: string; fromEqpId: string; action: string; toEqpId: string; createdAt: string; itemKind?: string; sourceName?: string; targetName?: string; recipeName?: string; requestId?: string; status?: string; reason?: string; detail?: string }
 export type HistoryResponse = { items: HistoryEntry[] }
 
-const API_BASE = ''
+const API_BASE = '.'
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly payload?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function http<T>(path: string, init?: RequestInit, timeoutMs = 60000): Promise<T> {
   const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 60000)
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -133,13 +140,16 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(text || 'API request failed')
+      let detail = text.slice(0, 200)
+      try { detail = JSON.parse(text)?.detail ?? detail } catch { /* ignore */ }
+      throw new ApiError(detail || 'API request failed', res.status, text)
     }
 
     return res.json() as Promise<T>
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      throw new Error('응답 대기시간이 초과되었습니다.')
+  } catch (err) {
+    if (err instanceof ApiError) throw err
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError('응답 대기시간이 초과되었습니다.', 0)
     }
     throw err
   } finally {
@@ -160,7 +170,7 @@ export const recipeTestApi = {
   persistJob(eqpId: string, sourceJobId: string, targetJobName: string, parsed: JobParsed, actorName = '', actorTeam = '') { return http<PersistJobResponse>('/api/recipe-test/job/persist', { method: 'POST', body: JSON.stringify({ eqpId, sourceJobId, targetJobName, parsed, actorName, actorTeam }) }) },
   renameFile(body: RenameFileRequest) { return http<RenameFileResponse>('/api/recipe-test/file/rename', { method: 'POST', body: JSON.stringify(body) }) },
   deleteFiles(eqpId: string, items: DeleteFileItem[], actorName = '', actorTeam = '') { return http<DeleteFilesResponse>('/api/recipe-test/file/delete', { method: 'POST', body: JSON.stringify({ eqpId, items, actorName, actorTeam }) }) },
-  transferFiles(body: TransferRequest) { return http<TransferResponse>('/api/recipe-test/transfer', { method: 'POST', body: JSON.stringify(body) }) },
+  transferFiles(body: TransferRequest) { return http<TransferResponse>('/api/recipe-test/transfer', { method: 'POST', body: JSON.stringify(body) }, 300000) },
   getInventoryRecipeSnapshot(eqpId: string) { const qs = new URLSearchParams({ eqpId }).toString(); return http<InventoryRecipeSnapshotResponse>(`/api/recipe-inventory/snapshot?${qs}`) },
   invalidateRuntimeCache(eqpId: string) { return http<{ status: string; eqpId: string }>(`/api/recipe-test/invalidate-runtime-cache`, { method: 'POST', body: JSON.stringify({ eqpId }) }) },
   getHistory(limit = 500) { const qs = new URLSearchParams({ limit: String(limit) }).toString(); return http<HistoryResponse>(`/api/recipe-test/history?${qs}`) },

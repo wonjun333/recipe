@@ -3,7 +3,6 @@
     <div class="brand">Recipe</div>
 
     <nav class="nav">
-      <RouterLink to="/recipe" class="nav-item">Recipe</RouterLink>
       <RouterLink to="/recipe-test" class="nav-item">Recipe Test</RouterLink>
       <RouterLink to="/history" class="nav-item">My History</RouterLink>
     </nav>

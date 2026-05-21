@@ -6,6 +6,8 @@ html, body, #app {
 
 body {
   display: block;   /* flex로 가운데 정렬 금지 */
+  font-family: 'Tahoma', 'Arial', 'MS Sans Serif', sans-serif;
+  font-size: 13px;
 }
 
 #app {

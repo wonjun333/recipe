@@ -14,7 +14,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
-from app.config import POSTGRES_URL
+from app.config import MOCK_MODE, POSTGRES_URL
+from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_RESULT, MOCK_SOURCE_ITEMS, get_mock_file_text
 from app.services.job_parser import parse_job_text
 from app.services.ftp_credentials import load_eqp_ip as db_load_eqp_ip
 from app.services.file_ops_service import (
@@ -333,6 +334,9 @@ def _run_eqp_master_query(engine, query: str):
 
 
 def load_eqp_master_options() -> list[dict[str, str]]:
+    if MOCK_MODE:
+        return sorted(MOCK_EQP_LIST, key=lambda x: (x["line"], x["team"], x["eqpId"]))
+
     engine = create_engine(POSTGRES_URL)
 
     queries = [
@@ -515,6 +519,9 @@ def filter_entries_by_exts(entries: list[dict[str, str]], exts: list[str]) -> li
 
 
 def get_ftp_file_list(ftp_ip: str, ftp_id: str, ftp_pw: str):
+    if MOCK_MODE:
+        return MOCK_FTP_RESULT
+
     try:
         ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
 
@@ -784,6 +791,9 @@ def ftp_delete_with_shadow(eqp_id: str, path: str, file_name: str) -> dict[str, 
     return svc_ftp_delete_with_shadow(eqp_id, path, file_name)
 
 def ftp_read_text_in_child(ftp_ip: str, ftp_id: str, ftp_pw: str, base_path: str, child_name: str, file_name: str) -> str:
+    if MOCK_MODE:
+        return get_mock_file_text(file_name)
+
     data = ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, os.path.join(base_path, child_name), file_name)
     for enc in ("utf-8", "cp949", "euc-kr", "latin1"):
         try:
@@ -904,6 +914,15 @@ def get_entries_from_source_path(ftp_ip: str, ftp_id: str, ftp_pw: str, source_k
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:
         raise ValueError(f"unsupported source kind: {source_kind}")
+
+    if MOCK_MODE:
+        items = MOCK_SOURCE_ITEMS.get(source_kind, [])
+        return {
+            "path": config["path"],
+            "exts": list(config.get("exts", [])),
+            "titleBase": config["titleBase"],
+            "items": items,
+        }
 
     if source_kind == 'metrologyRecipe':
         return get_metrology_source_entries(ftp_ip, ftp_id, ftp_pw)
@@ -2097,3 +2116,18 @@ def transfer_files(req: TransferRequest):
         return {'status': status, 'moved': moved, 'failed': failed}
     except Exception as e:
         raise HTTPException(status_code=400, detail=format_ftp_error(e))
+
+
+class InvalidateCacheRequest(BaseModel):
+    eqpId: str
+
+
+@router.post('/invalidate-runtime-cache')
+def invalidate_runtime_cache(req: InvalidateCacheRequest):
+    eqp_id = req.eqpId
+    BOOTSTRAP_CACHE.pop(eqp_id, None)
+    for cache in (CAS_CACHE, JOB_CACHE, RECIPE_CACHE, RECIPE_SOURCE_CACHE):
+        keys_to_del = [k for k in cache if k[0] == eqp_id]
+        for k in keys_to_del:
+            cache.pop(k, None)
+    return {'status': 'ok', 'eqpId': eqp_id}

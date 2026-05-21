@@ -3,11 +3,31 @@ from __future__ import annotations
 from pymongo import MongoClient
 from sqlalchemy import create_engine, text
 
-from app.config import MONGO_URL, POSTGRES_URL
+from app.config import MOCK_MODE, MONGO_URL, POSTGRES_URL
+from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_CREDS
+
+_pg_engine = None
+_mongo_client: MongoClient | None = None
+
+
+def _get_pg_engine():
+    global _pg_engine
+    if _pg_engine is None:
+        _pg_engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    return _pg_engine
+
+
+def _get_mongo_client() -> MongoClient:
+    global _mongo_client
+    if _mongo_client is None:
+        _mongo_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000)
+    return _mongo_client
 
 
 def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
-    engine = create_engine(POSTGRES_URL)
+    if MOCK_MODE:
+        items = MOCK_EQP_LIST
+        return items[:limit] if limit and limit > 0 else list(items)
     query = text(
         """
         SELECT
@@ -26,7 +46,7 @@ def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
         """
     )
 
-    with engine.connect() as conn:
+    with _get_pg_engine().connect() as conn:
         rows = conn.execute(query).mappings().all()
 
     items = [
@@ -45,21 +65,23 @@ def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
 
 
 def load_eqp_ftp_credentials(eqp_id: str) -> dict[str, str]:
-    client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000)
-    try:
-        doc = client["ADDCMP"]["FTP_STATUS"].find_one(
-            {"EQPID": eqp_id},
-            {"_id": 0, "FTP_SERVER": 1, "FTP_ID": 1, "FTP_PW": 1},
-        )
-        if not doc:
+    if MOCK_MODE:
+        cred = MOCK_FTP_CREDS.get(eqp_id)
+        if not cred:
             raise ValueError(f"FTP credential not found for EQPID={eqp_id}")
+        return dict(cred)
 
-        host = str(doc.get("FTP_SERVER") or "").strip()
-        user = str(doc.get("FTP_ID") or "").strip()
-        password = str(doc.get("FTP_PW") or "")
-        if not host or not user:
-            raise ValueError(f"Incomplete FTP credential for EQPID={eqp_id}")
+    doc = _get_mongo_client()["ADDCMP"]["FTP_STATUS"].find_one(
+        {"EQPID": eqp_id},
+        {"_id": 0, "FTP_SERVER": 1, "FTP_ID": 1, "FTP_PW": 1},
+    )
+    if not doc:
+        raise ValueError(f"FTP credential not found for EQPID={eqp_id}")
 
-        return {"host": host, "user": user, "password": password}
-    finally:
-        client.close()
+    host = str(doc.get("FTP_SERVER") or "").strip()
+    user = str(doc.get("FTP_ID") or "").strip()
+    password = str(doc.get("FTP_PW") or "")
+    if not host or not user:
+        raise ValueError(f"Incomplete FTP credential for EQPID={eqp_id}")
+
+    return {"host": host, "user": user, "password": password}

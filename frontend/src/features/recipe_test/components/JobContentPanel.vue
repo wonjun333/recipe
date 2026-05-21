@@ -160,4 +160,3 @@ function setContentRef(el: Element | null) {
   transform:translateY(0);
 }
 </style>
-```</Transition>

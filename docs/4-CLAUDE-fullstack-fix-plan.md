@@ -1,10 +1,10 @@
 # 풀스택 통합 수정 계획 (Fullstack Integrated Fix Plan)
 
-**기준일**: 2026-05-18  
-**대상**: `/home/dev/project/recipe` 전체  
-**기준 문서**: 
-- `docs/999-CLAUDE-backend-report.md` (BackEnd 123 이슈)
-- `docs/999-CLAUDE-FrontEnd-report.md` (FrontEnd 69 이슈)
+**기준일**: 2026-05-19
+**대상**: `/home/dev/project/recipe` 전체
+**기준 문서**:
+- `docs/999-CLAUDE-backend-report.md` (BackEnd Critical 10 / High 16 / Medium 5)
+- `docs/999-CLAUDE-FrontEnd-report.md` (FrontEnd Critical 2 / High 14 / Medium 26 / Low 20)
 - `docs/3-execution-plan.md` (Phase 1-4)
 
 **원칙**:
@@ -20,28 +20,28 @@
 
 ### 현황 진단
 
-**프로젝트 전체 상태**: 🔴 **서비스 불가능 (인프라 단계)**
+**프로젝트 전체 상태**: 🟠 **부분 동작 (코드 품질·보안 보강 필요)**
 
 | 측면 | 상태 | 근거 |
 |------|------|------|
-| **API 라우팅** | 🔴 전면 비동작 | main.py include_router() 0건 → 모든 엔드포인트 404 |
-| **핸들러 구현** | 🔴 impl 함수 미구현 | recipe_test_impl.py 16개 호출 함수 전부 미정의 |
-| **FrontEnd 기능** | 🟠 부분 동작 불가 | 6개 Critical 런타임 오류(endswith, loadHistory 등) |
-| **보안** | 🔴 치명적 | FTP path traversal, 자격증명 노출, 인증 전무 |
-| **테스트** | 🔴 전무 | BE 0건, FE 0건, 검증 불가능 |
+| **API 라우팅** | 🟡 대부분 동작 | `main.py`에 `recipe_test_router`, `recipe_inventory_router` 등록됨. `recipe_test_impl.py`에 `@router.*` 핸들러 16개 존재. 누락은 `POST /api/recipe-test/invalidate-runtime-cache` 1건 |
+| **코드 품질** | 🔴 위험 | `recipe_test.py`(2,252행)와 thin wrapper 파일들(`recipe_test_eqp.py` 외 4건) 합계 4,351행 dead code. `recipe_test.py:1146` SyntaxError(`if (!target_norm):`). bare `except Exception: pass` 51건+ |
+| **보안** | 🔴 치명적 | 인증/권한 미들웨어 없음, CORS 미설정, FTP 경로 검증 없음(path traversal), DB 자격증명 기본값 fallback |
+| **FrontEnd 런타임** | 🟡 주요 기능 동작 | RecipeTestPage.vue(4,358행) 정상 컴파일. `.endsWith()` 사용 정상, `loadHistory()` no-op stub 정의됨(line 370). Critical 잔존 2건은 테스트 러너 미설정과 전역 폰트 미선언 |
+| **테스트** | 🔴 전무 | BE: TestClient·monkeypatch 0건. FE: vitest/jest 미설치, *.test/*.spec 파일 0개 |
 
 ### 수정 전략의 3가지 원칙
 
-1. **Phase 1 (Critical 차단 해제)**: EP-01(라우터 등록) + impl 함수 + prefix 정정
-   - 목표: BE/FE 통신 가능 상태로 만들기
+1. **Phase 1 (즉시 차단 해제 + 보안 Critical)**
+   - 누락 엔드포인트 1건 추가, SyntaxError 1건 수정, dead code 정리, FE 폰트/테스트 셋업, DB 자격증명·FTP 경로·CORS·인증 기반 마련
    - 예상 기간: 1-2주
-   - 영향도: 최고 (이 없으면 다른 모든 작업 진행 불가)
+   - 영향도: 최고 (보안·코드 정합성·테스트 부재 해소)
 
-2. **Phase 2-3 (안정화 + 품질)**: 데이터 영속성, 보안 강화, 테스트 기반 구축
+2. **Phase 2 (안정화 + 품질)**: 데이터 영속성, 연결 풀, MOCK_MODE 분기, 에러 처리, 테스트 확장
    - 목표: Windows 배포 가능 상태로 만들기
    - 예상 기간: 3-6주
 
-3. **Phase 4 (장기 개선)**: 아키텍처 정제, 성능 최적화, 운영 안정성
+3. **Phase 3-4 (장기 개선)**: 아키텍처 정제(RecipeTestPage 분해, JSONL→SQLite), 성능 최적화, 운영 안정성
    - 목표: 프로덕션 운영 체계 확립
    - 예상 기간: 지속적
 
@@ -49,290 +49,209 @@
 
 ## 2. FrontEnd/BackEnd 공통 이슈
 
-### 2-1. 아키텍처 계층 단절
+### 2-1. 코드 구조 정합성 (Architecture)
 
-#### 이슈: API 계층 전체 비동작 (Architecture-01)
-**심각도**: 🔴 Critical  
-**상태**: Blocking (Phase 1 필수 선행)
+#### 이슈: dead code 정리 + 누락 엔드포인트 1건 (Architecture-01)
+**심각도**: 🔴 Critical
+**상태**: Phase 1 필수
 
 **현황**:
-- [ ] BackEnd main.py에 include_router() 호출 없음
-  - recipe_test_eqp.router, recipe_test_content.router, recipe_test_history.router
-  - recipe_test_ops.router, recipe_file_ops.router, recipe_inventory.router
-  - 현재 노출: GET /, GET /api/recipe-units 만 동작
-  
-- [ ] FrontEnd recipeTestApi.ts가 호출하는 14개 API 경로 모두 404 반환 가능성
-  - /api/recipe-test/*, /api/recipe-inventory/*, /api/recipe-file-ops/*
-
-**근본 원인**:
-- EP-01 미완료 (실행계획에 "❌ 미완료" 명시)
-- recipe_test_impl.py에 핸들러 함수 단 하나도 정의되지 않음 (impl.get_eqp_options() 등 16개 호출 함수 미존재)
-- recipe_test.py(2011줄)와 recipe_test_impl.py(845줄) 간 역할 불명확
+- `backend/app/main.py`는 이미 `recipe_test_router`, `recipe_inventory_router`를 `include_router()`로 등록함 → 핸들러 16개 정상 노출
+- 누락된 단 1개 엔드포인트: `POST /api/recipe-test/invalidate-runtime-cache` (FE는 호출, BE에는 핸들러 없음 → 404)
+- `recipe_test.py`(2,252행)는 `main.py`에 등록되지 않은 dead code이며 동일 로직이 `recipe_test_impl.py`(2,099행)에도 존재함 — 4,351행 중복
+- thin wrapper 5종(`recipe_test_eqp.py`, `recipe_test_content.py`, `recipe_test_history.py`, `recipe_test_ops.py`, `recipe_file_ops.py`)도 모두 `main.py`에 미등록 dead code
+- `recipe_test.py:1146` `if (!target_norm):` — Python에 `!` 단항 연산자가 없어 `py_compile` 즉시 실패
 
 **수정 계획**:
 
 ```
 ✅ Phase 1 수정 항목 (FIX-ARCH-01)
-- [ ] Step 1: backend/app/main.py에 include_router() 추가
-  - from app.api.routes import recipe_test_eqp, recipe_test_content, recipe_test_history, 
-    recipe_test_ops, recipe_file_ops, recipe_inventory
-  - for router in [recipe_test_eqp.router, recipe_test_content.router, 
-    recipe_test_history.router, recipe_test_ops.router, recipe_file_ops.router, 
-    recipe_inventory.router]:
-      app.include_router(router, prefix="/api")
 
-- [ ] Step 2: recipe_test_impl.py에 핸들러 함수 추가 또는 recipe_test.py 직접 등록
-  - 옵션 A: recipe_test.py의 get_eqp_options(line 1781), load_recipe_test(1795), 
-    get_cas_content(1850) 등 7개 GET 핸들러를 recipe_test_impl.py로 이전
-  - 옵션 B (임시): recipe_test.py를 그대로 recipe_test_eqp, recipe_test_content, 
-    recipe_test_history로 등록 (코드 중복 유지하되 즉시 라우팅)
-  - 권장: 옵션 B (단기) → 옵션 A로 점진 리팩토링 (중기)
+- [ ] Step 1: invalidate-runtime-cache 핸들러 추가
+  파일: app/api/routes/recipe_test_impl.py
+  구현:
+    class InvalidateCacheRequest(BaseModel):
+        eqpId: str
 
-- [ ] Step 3: recipe_test_ops.py와 recipe_file_ops.py의 prefix 교정
-  - 현재: recipe_test_ops.py prefix='/recipe-file-ops', recipe_file_ops.py prefix='/recipe-test'
-  - 수정 후: recipe_test_ops.py prefix='/recipe-test', recipe_file_ops.py prefix='/recipe-file-ops'
-  - 또는 파일명과 구현 내용을 다시 매칭 (확인 필요)
+    @router.post("/invalidate-runtime-cache")
+    def invalidate_runtime_cache(req: InvalidateCacheRequest):
+        for cache in (BOOTSTRAP_CACHE, CAS_CACHE, JOB_CACHE,
+                      RECIPE_CACHE, RECIPE_SOURCE_CACHE):
+            cache.pop(req.eqpId, None)
+        return {"status": "ok", "eqpId": req.eqpId}
+
+- [ ] Step 2: recipe_test.py:1146 SyntaxError 수정 후 파일 삭제 검토
+  현재: if (!target_norm):
+  수정: if not target_norm:
+  추가 조치: recipe_test.py는 main.py에 등록되지 않은 dead code → 수정 후 삭제
+
+- [ ] Step 3: thin wrapper 5종 삭제 (dead code 제거)
+  - app/api/routes/recipe_test_eqp.py
+  - app/api/routes/recipe_test_content.py
+  - app/api/routes/recipe_test_history.py
+  - app/api/routes/recipe_test_ops.py
+  - app/api/routes/recipe_file_ops.py
+  근거: 모두 main.py에 미등록, recipe_test_impl.py가 실제 핸들러 보유
+
+- [ ] Step 4: backend/main.py vs backend/app/main.py 이중 진입점 정리
+  backend/main.py는 라우터 미등록 레거시. 삭제 또는 `from app.main import app`으로 축소
 ```
 
 **검증 방법**:
 ```bash
-# 라우터 등록 확인
-curl http://localhost:8000/api/recipe-test/eqp-options
-# 기대 응답: 200, EqpOptionsResponse
+# 1) 누락 엔드포인트 동작 확인
+curl -X POST http://localhost:8000/api/recipe-test/invalidate-runtime-cache \
+  -H "Content-Type: application/json" \
+  -d '{"eqpId":"EQP001"}'
+# 기대: 200 {"status":"ok","eqpId":"EQP001"}
 
-# impl 함수 import 검사
-python -c "from app.api.routes import recipe_test_impl; print(dir(recipe_test_impl.get_eqp_options))"
-# AttributeError 없음 확인
+# 2) SyntaxError 해소 확인
+python -m py_compile backend/app/api/routes/recipe_test.py
+# 기대: 성공 (또는 파일 자체 삭제됨)
+
+# 3) dead code 삭제 확인
+ls backend/app/api/routes/ | grep -E '(recipe_test_eqp|recipe_test_content|recipe_test_history|recipe_test_ops|recipe_file_ops)\.py'
+# 기대: 출력 없음
 ```
 
-**위험도**: 낮음 (기존 핸들러 변경 없음, 등록/라우팅만 추가)  
-**예상 기간**: 4-8 시간
+**위험도**: 낮음 (dead code 삭제는 노출 라우트에 영향 없음, 신규 핸들러 1개는 독립 동작)
+**예상 기간**: 4-6 시간
 
 ---
 
-#### 이슈: impl 참조 함수 미구현 (Architecture-02)
-**심각도**: 🔴 Critical  
-**상태**: Blocking (Architecture-01과 연쇄)
+### 2-2. FrontEnd Critical 2건 (Error & Setup)
 
-**현황**:
-- [ ] recipe_test_eqp.py, recipe_test_content.py, recipe_test_history.py, recipe_file_ops.py가 모두
-  `from app.api.routes import recipe_test_impl as impl` 후 다음을 호출:
-  - impl.get_eqp_options(), impl.load_recipe_test(), impl.get_cas_content()
-  - impl.save_cas(), impl.persist_cas(), impl.save_job(), impl.persist_job()
-  - impl.clone_recipe(), impl.rename_file(), impl.delete_files(), impl.transfer_files()
+#### 이슈: 테스트 러너 전무 + 전역 폰트 미선언
+**심각도**: 🔴 Critical
+**상태**: FrontEnd 독립 수정 가능
 
-- [ ] 그러나 recipe_test_impl.py:1-845에는 다음이 정의되지 않음:
-  - @router.* 데코레이터 0개 (router 선언만 있음, line 37)
-  - 위의 16개 함수 모두 미정의
-  - 실제 핸들러는 recipe_test.py(line 1780-2011)에만 존재
-
-**수정 계획**:
-
-```
-✅ Phase 1 수정 항목 (FIX-ARCH-02)
-Option A (권장 장기): recipe_test_impl.py로 함수 이전
-- [ ] recipe_test.py의 get_eqp_options(1780), load_recipe_test(1794), 
-  get_cas_content(1849), get_job_content(1901), get_history(1938) 등 
-  구현부를 recipe_test_impl.py로 이전
-- [ ] recipe_test_impl.py에 @router.* 데코레이터 추가
-- [ ] recipe_test.py는 삭제하거나 recipe_test_impl 호출로 축소
-- 작업량: 중상, 예상 기간: 1-2주
-
-Option B (권장 단기): recipe_test.py 직접 등록
-- [ ] recipe_test_eqp.py → recipe_test.py import 후 @router.get() 리팩토링 최소화
-- [ ] impl.* 호출을 recipe_test.* 직접 호출로 변경
-- [ ] 작업량: 적음, 예상 기간: 2-4시간
-- 단점: 2011줄 파일이 계속 유지됨 (Phase 2/3에서 분리)
-
-선택 기준: 
-- Phase 1은 B로 빠르게 라우팅 정상화
-- Phase 2에서 A로 점진 리팩토링 (FE-03 RecipeTestPage 분해와 병행)
-```
-
-**검증 방법**:
-```bash
-# TestClient로 엔드포인트 호출
-python -c "
-from fastapi.testclient import TestClient
-from app.main import app
-client = TestClient(app)
-resp = client.get('/api/recipe-test/eqp-options')
-print(resp.status_code)  # 200 기대
-print(resp.json())  # EqpOptionsResponse 구조
-"
-```
-
-**위험도**: 중간 (함수 이전 시 인자 변경 리스크)  
-**예상 기간**: Phase 1은 2-4시간(옵션B), Phase 2는 1주(옵션A)
-
----
-
-### 2-2. 런타임 오류와 구문 오염 (공통 Category)
-
-#### 이슈: FrontEnd Critical 런타임 오류 6건 (Error-01)
-**심각도**: 🔴 Critical  
-**상태**: FrontEnd 독립적 수정 가능 (BE 무관)
-
-**FrontEnd 6개 Critical**:
+> 구버전 보고서에 명시되었던 다음 항목들은 실제 코드 확인 결과 존재하지 않으므로 본 계획에서 제외했다:
+> - `.endswith()` 오타 6곳 (실제 코드는 모두 `.endsWith()`)
+> - `loadHistory()` 미정의 (RecipeTestPage.vue:370에 no-op stub 정의됨)
+> - `Pel백엔드 포맷 유지` 한글 텍스트 (코드에 없음)
+> - `compress_output_matrix` 식별자 오염 (코드에 없음)
 
 ```
 ✅ FrontEnd Phase 1 수정 항목 (FIX-ERROR-01)
 
-1. [ ] C-FE-01: String.endswith() 오타 (6곳)
-   - 파일: frontend/src/features/recipe_test/pages/RecipeTestPage.vue
-   - 위치: line 338(stripFileExt), 471(createPlaceholderRecipe), 
-           2541(casListSaveAs), 2662(casContentSaveAs), 
-           2721(jobListSaveAs), 2797(jobContentSaveAs)
-   - 수정: .endswith( → .endsWith( 일괄 치환
-   - 검증: grep -n "\.endswith(" frontend/src 결과 0건
-   - 예상 기간: 1시간
-
-2. [ ] C-FE-02: loadHistory() 미정의 (8곳)
-   - 파일: RecipeTestPage.vue
-   - 호출: line 2266, 2695, 2727, 2758, 2803, 2833, 2859, 2897
-   - 정의: MyHistoryPage.vue:210 에만 존재
-   - 옵션 선택 필요:
-     * A (Phase 1 임시): 8곳 호출 제거 (사용자가 수동 새로고침)
-     * B (Phase 2): useHistory composable 생성 후 자동 갱신
-   - 권장: A (Phase 1) → B (Phase 2에서 대체)
-   - 예상 기간: Phase 1은 30분
-
-3. [ ] C-FE-04: 주석 없는 한글 텍스트 (구문 오염)
-   - 파일: RecipeTestPage.vue:626
-   - 내용: "Pel백엔드 포맷 유지" — 주석 기호 없이 코드 블록 내 삽입
-   - 수정: 라인 삭제 또는 // 주석 처리
-   - 예상 기간: 15분
-
-4. [ ] C-FE-05: compress_output_matrix 식별자 오염
-   - 파일: RecipeTestPage.vue:1333
-   - 내용: } compress_output_matrix — try-catch 블록 사이에 삽입
-   - 수정: 라인 삭제
-   - 예상 기간: 15분
-
-5. [ ] C-FE-06: 전역 폰트 미선언
-   - 파일: frontend/index.html head
-   - 현황: lang="en", body font-family 선언 없음
-   - 수정: <style>html { font-family: 'Tahoma', 'Arial', sans-serif; }</style> 추가
-   - 대체: frontend/src/style.css 생성 후 main.ts import
-   - 검증: 브라우저 개발도구에서 body font-family 확인
-   - 예상 기간: 2시간
-
-6. [ ] C-FE-03: 테스트 러너 미설정
+1. [ ] C-FE-01: 테스트 러너 미설정
    - 파일: frontend/package.json, frontend/vite.config.ts
-   - 현황: test 스크립트 없음, vitest/jest 미설정, 테스트 파일 0개
-   - Phase 1: vitest @vue/test-utils jsdom 설치 + scripts/test 추가
-   - Phase 2: 순수 함수(stripFileExt, deepClone, parseDetailEntry) 단위 테스트 작성
+   - 현황: test 스크립트 없음, vitest/jest 미설치, *.test/*.spec 파일 0개
+   - Phase 1: vitest @vue/test-utils jsdom 설치 + scripts/test/typecheck 추가
+     npm install -D vitest @vue/test-utils jsdom
+     "scripts": {
+       "test": "vitest run",
+       "dev:test": "vitest",
+       "typecheck": "vue-tsc --noEmit"
+     }
+   - Phase 2: 순수 함수(stripFileExt, displayJobName, displayRecipeName,
+     naturalCompare 등) 단위 테스트 작성
    - 예상 기간: Phase 1은 4시간, Phase 2는 진행형
-```
 
-**수정 순서**:
-1. 1-5번 (텍스트 기반) → 1시간 이내 완료 가능
-2. 6번 (테스트 프레임워크) → Phase 1 초기에 셋업
+2. [ ] C-FE-02: 전역 폰트 미선언
+   - 파일: frontend/index.html (head)
+   - 현황: lang="en", body font-family 선언 없음 (13줄짜리 minimal HTML)
+   - 수정 (옵션 A, index.html 직접 수정):
+     <html lang="ko">
+       <head>
+         <style>
+           body {
+             font-family: 'Tahoma', 'Arial', 'MS Sans Serif', sans-serif;
+             font-size: 13px;
+             background: #c0c0c0;
+           }
+         </style>
+       </head>
+   - 수정 (옵션 B, 권장): frontend/src/style.css 생성 후 main.ts에서 import
+   - 검증: 브라우저 DevTools > Computed > font-family 확인
+   - 예상 기간: 2시간
+```
 
 **검증 방법**:
 ```bash
-# 구문 검사
+# 빌드 / 타입 검사
 npm run build
+npm run typecheck
 
-# 타입 검사
-vue-tsc --noEmit
+# 테스트 러너 실행
+npm test
 
-# 런타임 테스트 (라우터 등록 후)
-npm run dev
-# 브라우저: CAS/JOB Save As 실행 → TypeError 없음 확인
+# 폰트 적용 확인 (브라우저)
+# DevTools > Computed에서 body font-family가 Tahoma/Arial 계열인지 확인
 ```
 
-**위험도**: 낮음 (순수 텍스트 수정)  
-**총 예상 기간**: Phase 1은 1-2일
+**위험도**: 낮음
+**예상 기간**: Phase 1은 1일
 
 ---
 
-## 3. API 계약 불일치 수정 계획
+## 3. API 계약 정합성
 
-### 3-1. 미구현 엔드포인트 인벤토리
+### 3-1. 엔드포인트 인벤토리 (현재 상태)
 
-**확인됨 상태**:
-- ✅ 구현됨 (코드 존재): 7개 GET (eqp-options, load, cas-content, job-content, recipe-source-list, history, metrology-source-debug)
-- ❌ 미구현 (라우터 선언만): 1개 GET (recipe-content)
-- ❌ 미구현 (완전 부재): 9개 ops (cas/job save·persist, recipe clone, file rename·delete, transfer, inventory snapshot, invalidate-runtime-cache)
+| 영역 | 상태 |
+|------|------|
+| `recipe_test_impl.py`에 `@router.*` 핸들러 16개 | ✅ 구현됨 (main.py에 include_router로 등록) |
+| `recipe_inventory.py` 핸들러 | ✅ 구현됨 |
+| `POST /api/recipe-test/invalidate-runtime-cache` | ❌ 미구현 (FE는 호출, 404) — Architecture-01 Step 1에서 해결 |
 
 ### 3-2. 수정 계획
 
 ```
-✅ Phase 1 API 계약 수정 항목 (FIX-API-01)
+✅ Phase 1 API 계약 수정 (FIX-API-01)
 
-1. [ ] /api/recipe-test/recipe-content 구현
-   - 라우터: recipe_test_content.py:23-25
-   - impl 함수: impl.get_recipe_content(eqpId, recipeId) 미구현
-   - 작업: recipe_test.py에 핸들러 있는지 검색
-   - 상태: 확인 필요 (근처 코드 없음)
+- [ ] invalidate-runtime-cache 핸들러 1건 추가 (Architecture-01 Step 1과 동일)
 
-2. [ ] 9개 ops 엔드포인트 구현 (실행계획 EB-01-a)
-   - POST /api/recipe-test/cas/save
-   - POST /api/recipe-test/cas/persist
-   - POST /api/recipe-test/job/save
-   - POST /api/recipe-test/job/persist
-   - POST /api/recipe-test/recipe/clone
-   - POST /api/recipe-test/file/rename
-   - POST /api/recipe-test/file/delete
-   - POST /api/recipe-test/transfer
-   - GET /api/recipe-inventory/snapshot
-   - POST /api/recipe-test/invalidate-runtime-cache
-   
-   현황: 라우터 선언은 있으나 impl.save_cas 등 핸들러 함수 미정의
-   
-   수정 계획:
-   - [ ] recipe_test.py 또는 별도 위치에서 핸들러 구현 코드 검색
-   - [ ] 있으면: recipe_test_impl.py로 이전 + @router.post 데코레이터 추가
-   - [ ] 없으면: 요청 모델(SaveCasRequest 등)은 recipe_test_impl.py에 있으므로 
-           핸들러 구현 from scratch (작업량 상대적 증가)
-   - 상태: 확인 필요
-
-3. [ ] 라우터 prefix 정정 (Architecture-01의 Step 3과 연계)
-   - recipe_test_ops.py prefix 교정
-   - recipe_file_ops.py prefix 교정
+확인 완료 사항:
+- recipe_test_impl.py에 GET/POST 핸들러 16개 정상 정의됨
+- main.py에서 recipe_test_router, recipe_inventory_router 등록됨
+- FE recipeTestApi.ts가 호출하는 경로들 대부분 200 응답 가능
 ```
 
 **검증 방법**:
 ```bash
-# 엔드포인트 등록 확인
-curl -X POST http://localhost:8000/api/recipe-test/cas/save \
-  -H "Content-Type: application/json" \
-  -d '{"eqpId":"...", "casId":"..."}' 
-# 기대: 200 또는 400 (입력 검증), 404 아님
+# FastAPI 라우트 목록 확인
+python -c "
+from app.main import app
+for r in app.routes:
+    if hasattr(r, 'methods'):
+        print(r.methods, r.path)
+" | grep recipe
 ```
 
-**위험도**: 중상 (핸들러 구현 상태 미확인)  
-**예상 기간**: 구현 코드 있으면 4시간, 없으면 2-3일
+**위험도**: 낮음
+**예상 기간**: 1시간 (핸들러 1개 추가)
 
 ---
 
 ## 4. DB/데이터 흐름 수정 계획
 
-### 4-1. 데이터 영속성 3대 문제
+### 4-1. 데이터 영속성
 
-#### 이슈: temp_file_store.py - LOCAL_EDIT_BASE 환경변수 미지원 (Persist-01)
-**심각도**: 🟠 High  
-**영향**: Windows 배포 시 데이터 손실
+#### 이슈: tempdir 기반 영속 데이터 (Persist-01)
+**심각도**: 🟡 Medium → 운영상 🟠 High
+**관련**: BE M-01
 
 ```
-✅ Phase 1-2 수정 항목 (FIX-PERSIST-01)
+✅ Phase 2 수정 항목 (FIX-PERSIST-01)
 
-- [ ] backend/app/services/temp_file_store.py:6-7 수정
+- [ ] backend/app/services/temp_file_store.py 수정
   현재: LOCAL_EDIT_BASE = Path(tempfile.gettempdir()) / 'recipe_test_edit'
-  수정 후: 
-    _DATA_DIR = Path(os.getenv('RECIPE_DATA_DIR', 
-                               Path(tempfile.gettempdir()) 
-                               if os.name != 'nt' 
-                               else Path('C:\\ProgramData\\RecipeRMS'))
+  수정 후:
+    import os
+    _DATA_DIR = Path(os.getenv('RECIPE_DATA_DIR',
+                               str(Path(tempfile.gettempdir()))
+                               if os.name != 'nt'
+                               else r'C:\ProgramData\RecipeRMS'))
     LOCAL_EDIT_BASE = _DATA_DIR / 'recipe_test_edit'
 
-- [ ] backend/.env.example에 RECIPE_DATA_DIR 환경변수 추가
+- [ ] recipe_cache_store.py, history_service.py에도 동일 RECIPE_DATA_DIR 적용
+
+- [ ] backend/.env.example에 RECIPE_DATA_DIR 추가
   RECIPE_DATA_DIR=/opt/recipe-rms/data  # Linux
-  또는
   RECIPE_DATA_DIR=C:\ProgramData\RecipeRMS  # Windows
 
-- [ ] Windows 배포 가이드(docs/windows-deployment-guide.md) 업데이트
+- [ ] docs/windows-deployment-guide.md 업데이트
   - RECIPE_DATA_DIR 설정 방법
   - 기존 임시 파일 이관 절차
 
@@ -340,140 +259,100 @@ curl -X POST http://localhost:8000/api/recipe-test/cas/save \
 예상 기간: Phase 2 초기
 ```
 
-#### 이슈: history_service.py - JSONL 동시성 + 경로 문제 (Persist-02)
-**심각도**: 🟠 High  
-**영향**: 이력 손실 위험, 동시 append 원자성 미보장
+#### 이슈: JSONL 이력 동시성 + O(N) 읽기 (Persist-02)
+**심각도**: 🟠 High (BE H-10)
 
 ```
-✅ Phase 2 수정 항목 (FIX-PERSIST-02)
+✅ Phase 2 (단기) + Phase 3 (장기) 수정 항목 (FIX-PERSIST-02)
 
-Option A (단기): 경로만 변경 + 파일 잠금
-- [ ] history_service.py:56에서 tempdir 대신 RECIPE_DATA_DIR 사용
-  HISTORY_DIR = Path(os.getenv('RECIPE_DATA_DIR', ...)) / 'history'
-- [ ] filelock 라이브러리 도입하여 append 시 파일 잠금
+Option A (Phase 2, 단기): 파일 잠금
+- [ ] filelock 라이브러리 도입
   from filelock import FileLock
-  with FileLock(history_file.with_suffix('.lock')):
-    with open(history_file, 'a') as f: ...
+  with FileLock(str(history_file) + '.lock'):
+      with open(history_file, 'a', encoding='utf-8') as f: ...
 - 예상 기간: 2시간
 
-Option B (권장 중기): SQLite로 이관 (ERD §12.5 권고)
-- [ ] recipe_cache_store.py에 recipe_action_history 테이블 추가
-  CREATE TABLE recipe_action_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    actor_name TEXT, actor_team TEXT, from_eqp_id TEXT,
-    action TEXT, to_eqp_id TEXT, created_at TEXT NOT NULL,
-    item_kind TEXT, source_name TEXT, target_name TEXT,
-    recipe_name TEXT, request_id TEXT, status TEXT,
-    reason TEXT, detail TEXT
-  )
-- [ ] history_service.py의 append_history_entry()를 SQLite INSERT로 교체
+Option B (Phase 3, 권장 장기): SQLite 이관 (ERD §12.5 권고)
+- [ ] recipe_cache_store에 recipe_action_history 테이블 추가
+- [ ] history_service.append_history_entry()를 SQLite INSERT로 교체
 - [ ] 기존 .jsonl 파일을 migration 스크립트로 일괄 삽입
-- [ ] history_service.py 전체를 recipe_cache_store와 통합
 - 예상 기간: 3-4시간
-
-권장 경로: Phase 2는 A (단기), Phase 3에서 B로 이관
 ```
 
-#### 이슈: recipe_cache_store.py - ensure_schema() 매 호출 오버헤드 (Persist-03)
-**심각도**: 🟠 High  
-**영향**: 매 요청마다 4개 테이블 CREATE TABLE IF NOT EXISTS 실행 → 성능 저하
+#### 이슈: SQLite WAL 미설정 + ensure_schema() 매 호출 (Persist-03)
+**심각도**: 🟠 High (BE H-08, H-09)
 
 ```
 ✅ Phase 1-2 수정 항목 (FIX-PERSIST-03)
 
-- [ ] backend/app/services/recipe_cache_store.py:36-114 리팩토링
-  
-  현재: 모든 공개 함수 첫 줄에 ensure_schema() 호출
-  수정 후: 
-    _schema_initialized: bool = False
-    
+- [ ] recipe_cache_store.py 리팩토링
+  현재: 공개 함수마다 ensure_schema() 호출 → CREATE TABLE IF NOT EXISTS 반복
+  수정:
+    _schema_initialized = False
     def _ensure_schema_once():
-      global _schema_initialized
-      if not _schema_initialized:
-        _ensure_schema()
-        _schema_initialized = True
-    
-    # 모든 함수에서 ensure_schema() → _ensure_schema_once() 변경
-    # 또는 @functools.lru_cache(maxsize=1) 적용
+        global _schema_initialized
+        if not _schema_initialized:
+            _ensure_schema()
+            _schema_initialized = True
 
-- [ ] WAL 모드 동시 활성화 (Persist-03과 함께)
-  - [ ] _connect() 함수에 다음 추가:
-    conn.execute('PRAGMA journal_mode=WAL')
-    conn.execute('PRAGMA synchronous=NORMAL')  
-    conn.execute('PRAGMA busy_timeout=5000')
+- [ ] WAL 모드 + busy_timeout 설정
+  def _connect():
+      conn = sqlite3.connect(...)
+      conn.execute('PRAGMA journal_mode=WAL')
+      conn.execute('PRAGMA synchronous=NORMAL')
+      conn.execute('PRAGMA busy_timeout=5000')
+      return conn
 
-예상 기간: 2시간
+예상 기간: 2-3시간
 ```
 
 ---
 
 ### 4-2. 데이터베이스 연결 풀링
 
-#### 이슈: PostgreSQL per-request create_engine (Connectivity-01)
-**심각도**: 🟠 High
+#### 이슈: PostgreSQL per-request create_engine (Connectivity-01, BE H-06)
 
 ```
 ✅ Phase 2 수정 항목 (FIX-CONNECTIVITY-01)
 
-파일: backend/app/services/ftp_eqp_ip.py:10
-현황: load_lk_model_eqps() 함수 내부에서 create_engine(POSTGRES_URL) 
-      → 매 호출마다 새 engine 생성, 커넥션 풀 미사용
+파일: backend/app/services/ftp_eqp_ip.py
+현황: 함수 내부에서 create_engine() → 매 호출마다 신규 engine
 
 수정:
-- [ ] 모듈 수준 싱글톤 engine 생성
-  engine = None
+- [ ] 모듈 수준 싱글톤 engine
+  _engine = None
   def get_engine():
-    global engine
-    if engine is None:
-      engine = create_engine(POSTGRES_URL, poolclass=QueuePool, 
-                            pool_size=10, max_overflow=20)
-    return engine
+      global _engine
+      if _engine is None:
+          _engine = create_engine(POSTGRES_URL, poolclass=QueuePool,
+                                  pool_size=10, max_overflow=20)
+      return _engine
 
-- [ ] 모든 함수에서 create_engine() 호출 제거 → get_engine() 사용으로 변경
+- [ ] db.py(psycopg 직접)와 ftp_eqp_ip.py(SQLAlchemy) PostgreSQL 접근 방식 통일
 
-- [ ] FastAPI lifespan event에서 engine cleanup
-  @app.on_event("shutdown")
-  async def shutdown():
-    if engine:
-      engine.dispose()
+- [ ] FastAPI lifespan에서 engine.dispose()
 
 예상 기간: 3-4시간
 ```
 
-#### 이슈: MongoDB per-request MongoClient (Connectivity-02)
-**심각도**: 🟠 High
+#### 이슈: MongoDB per-request MongoClient (Connectivity-02, BE H-07)
 
 ```
 ✅ Phase 2 수정 항목 (FIX-CONNECTIVITY-02)
 
-파일: backend/app/services/ftp_credentials.py:15-46
-      backend/app/services/ftp_eqp_ip.py:40-55
-현황: load_eqp_ip(), load_eqp_ftp_credentials() 내부에서 MongoClient 생성·close()
+파일: backend/app/services/ftp_credentials.py, ftp_eqp_ip.py
+현황: 매 호출마다 MongoClient() 생성·close()
 
 수정:
-- [ ] 모듈 수준 싱글톤 MongoClient
-  mongo_client = None
-  def get_mongo_client():
-    global mongo_client
-    if mongo_client is None:
-      mongo_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
-    return mongo_client
-
-- [ ] FastAPI lifespan에서 cleanup
-  @app.on_event("shutdown")
-  async def shutdown():
-    if mongo_client:
-      mongo_client.close()
-
-- [ ] 두 파일의 중복 구현 통합 (ADDCMP.FTP_STATUS 컬렉션 접근 코드 동일)
-  → shared/services/mongo_client.py로 통합
+- [ ] 모듈 수준 싱글톤 MongoClient + FastAPI lifespan cleanup
+- [ ] ADDCMP.FTP_STATUS 컬렉션 접근 중복 코드 통합 → shared/services/mongo_client.py
 
 예상 기간: 2시간
 ```
 
 ---
 
-## 5. 환경 설정/Mockup/Real Data 대응 계획
+## 5. 환경 설정 / Mockup / Real Data 대응
 
 ### 5-1. MOCK_MODE 환경변수 기반 분기
 
@@ -483,261 +362,138 @@ Option B (권장 중기): SQLite로 이관 (ERD §12.5 권고)
 1. [ ] backend/app/config.py에 MOCK_MODE 플래그 추가
    MOCK_MODE: bool = os.getenv('MOCK_MODE', '0') == '1'
 
-2. [ ] 서비스 계층에 분기 추가
-   - ftp_eqp_ip.load_lk_model_eqps():
-     if MOCK_MODE: return mockup_data.MOCK_EQP_OPTIONS['items']
-     else: return 실제 DB 조회
-   
-   - file_ops_service.connect_ftp():
-     if MOCK_MODE: return MockFTP()
-     else: return ftplib.FTP(ip, id, pw)
-   
-   - history_service.list_history_entries():
-     if MOCK_MODE: return mockup_data.MOCK_HISTORY_ENTRIES
-     else: return 실제 파일/DB 조회
+2. [ ] 서비스 계층 분기
+   - ftp_eqp_ip.load_lk_model_eqps(): MOCK_MODE면 mockup_data 반환
+   - file_ops_service.connect_ftp(): MOCK_MODE면 MockFTP 반환
+   - history_service.list_history_entries(): MOCK_MODE면 mockup 반환
 
-3. [ ] conftest.py 신설 (사외 환경용 테스트)
+3. [ ] conftest.py 신설 (사외 환경 테스트용)
    @pytest.fixture(autouse=True)
    def mock_dependencies(monkeypatch):
-     monkeypatch.setattr('app.config.MOCK_MODE', True)
-     monkeypatch.setattr('app.services.ftp_eqp_ip.load_lk_model_eqps', 
-                        lambda limit=None: mockup_data.MOCK_EQP_OPTIONS['items'])
+       monkeypatch.setenv('MOCK_MODE', '1')
+       monkeypatch.setattr('app.services.ftp_eqp_ip.load_lk_model_eqps',
+                           lambda: mockup_data.MOCK_EQP_OPTIONS['items'])
 
-4. [ ] backend/.env (개발) vs .env.prod (사내)
-   # .env (개발 환경)
-   MOCK_MODE=1
-   POSTGRES_URL=
-   MONGO_URL=
-   
-   # .env.prod (사내 환경)
-   MOCK_MODE=0
-   POSTGRES_URL=postgresql://<user>:<password>@<host>:<port>/<dbname>
-   MONGO_URL=mongodb://<host>:<port>/
+4. [ ] .env (개발, MOCK_MODE=1) vs .env.prod (사내, MOCK_MODE=0) 분리
 
 예상 기간: Phase 1은 4시간, Phase 2는 테스트 작성 진행형
 ```
 
-### 5-2. FrontEnd API 에러 처리 개선
+### 5-2. FrontEnd API 에러 처리 개선 (FE H-FE-09)
 
 ```
 ✅ Phase 1-2 수정 항목 (FIX-MOCKUP-02)
 
-파일: frontend/src/features/recipe_test/api/recipeTestApi.ts:329-356 http() 함수
+파일: frontend/src/features/recipe_test/api/recipeTestApi.ts:121~148 http() 함수
 
 현황:
-- catch (err: any) { ... } — any 타입
-- throw new Error(text || 'API request failed') — 구조화 없음
-- 500 에러로 HTML 반환 시 전체 HTML을 error message에 포함
+- catch (err: any) — any 타입
+- 500 에러로 HTML 반환 시 KB 단위 텍스트가 Error.message에 그대로 담김
+- 60초 일괄 타임아웃 → FTP 전송 등 장시간 호출에 부적합
 
 수정:
 - [ ] ApiError 클래스 정의
-  interface ApiError extends Error {
-    statusCode: number;
-    payload?: unknown;
-  }
-
-- [ ] http<T>() 함수 개선
-  async function http<T>(
-    method: string, 
-    url: string, 
-    body?: any,
-    timeout?: number
-  ): Promise<T> {
-    const res = await fetch(url, {
-      timeout: timeout ?? 60000,  // per-request timeout
-      ...
-    });
-    
-    if (!res.ok) {
-      const text = await res.text();
-      let detail = text;
-      try {
-        const json = JSON.parse(text);
-        detail = json.detail || json.message || text.slice(0, 200);
-      } catch {}
-      throw new ApiError(detail, res.status);
-    }
-    ...
-  }
-
-- [ ] getInventoryRecipeSnapshot(), invalidateRuntimeCache() 호출부에서 fallback 처리
-  try {
-    const snapshot = await getInventoryRecipeSnapshot(eqpId);
-    ...
-  } catch (err) {
-    if (err instanceof ApiError && err.statusCode === 404) {
-      console.warn('Snapshot API not implemented, skipping');
-      // 계속 진행
-    } else {
-      throw err;
+  class ApiError extends Error {
+    constructor(message: string, public status: number, public payload?: unknown) {
+      super(message)
     }
   }
 
-예상 기간: 2시간
+- [ ] http<T>() 개선
+  - JSON detail 우선 추출 후 .slice(0, 200)으로 절단
+  - 호출별 timeout 옵션 받기
+  - ApiError로 throw하여 호출자가 status 분기
+
+- [ ] invalidateRuntimeCache(), getInventoryRecipeSnapshot() 호출부에서 graceful fallback
+
+예상 기간: 2-3시간
 ```
 
 ---
 
-## 6. 보안/에러 처리/로깅 수정 계획
+## 6. 보안 / 에러 처리 / 로깅
 
 ### 6-1. Critical 보안 패치 (즉시)
 
 ```
-✅ Phase 1 보안 수정 항목 (FIX-SEC-01)
+✅ Phase 1 보안 수정 (FIX-SEC-01)
 
-1. [ ] FTP Path Traversal 방지 (SEC-01)
-   파일: backend/app/services/file_ops_service.py
-   
-   - [ ] 파일명 정규식 검증
-     SAFE_FILENAME_RE = re.compile(r'^[A-Za-z0-9_.\\-]+$')
-     
-     def validate_filename(name: str) -> bool:
-       if not SAFE_FILENAME_RE.match(name):
-         raise ValueError(f'Invalid filename: {name}')
-       if len(name) > 255 or name in ('.', '..'):
-         raise ValueError(f'Unsafe filename: {name}')
-       return True
-   
-   - [ ] remoteDir 화이트리스트 검증
-     ALLOWED_DIRS = {
-       'CAS': '/설비경로/CAS',
-       'JOB': '/설비경로/JOB',
-       'RECIPE': '/설비경로/RECIPE',
-     }
-     
-     def validate_remote_dir(dir_type: str, path: str) -> bool:
-       if dir_type not in ALLOWED_DIRS:
-         raise ValueError(f'Invalid dir_type: {dir_type}')
-       base = ALLOWED_DIRS[dir_type]
-       normalized = pathlib.Path(path).resolve()
-       if not str(normalized).startswith(str(base)):
-         raise ValueError(f'Path traversal detected: {path}')
-       return True
-   
-   - [ ] cwd() 호출 전에 검증
-     def connect_ftp(...):
-       ...
-       for dir_name in path.split('/'):
-         validate_filename(dir_name)
-       ftp.cwd(path)  # 이제 안전함
+1. [ ] C-06: CORS 미들웨어 추가
+   파일: backend/app/main.py
+   from fastapi.middleware.cors import CORSMiddleware
+   app.add_middleware(
+       CORSMiddleware,
+       allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','),
+       allow_credentials=True,
+       allow_methods=['GET', 'POST'],
+       allow_headers=['*'],
+   )
+   예상 기간: 1시간
 
+2. [ ] C-07: FTP Path Traversal 방지
+   파일: backend/app/services/file_ops_service.py, recipe_file_ops 경유 핸들러
+   - 파일명 정규식: SAFE_FILENAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
+   - remoteDir 화이트리스트: CAS/JOB/RECIPE 기본 경로 prefix 검증
+   - ftp.cwd() 호출 전 validate_filename / validate_remote_dir 호출
    예상 기간: 3-4시간
 
-2. [ ] 자격증명 로그 누출 방지 (SEC-02)
-   파일: backend/app/services/recipe_inventory_sync.py, ftp_credentials.py, db.py
-   
-   - [ ] FtpCredentials dataclass __repr__ 마스킹
+3. [ ] C-10: DB 자격증명 기본값 fallback 제거
+   파일: backend/db.py, backend/app/config.py
+   - MONGO_URL, POSTGRES_URL, DB_PASSWORD 기본값 삭제
+   - 시작 시 누락이면 RuntimeError 발생
+   예상 기간: 1시간
+
+4. [ ] C-08: RMS_down.py 하드코딩 절대경로 수정
+   파일: backend/app/RMS/RMS_down.py:59
+   현재: output_path = "/root/project/recipe/backend/app/data/..."
+   수정: Path(__file__).resolve().parents[2] / 'data' / 'cloud_protected_files.csv'
+   예상 기간: 30분
+
+5. [ ] H-14: FtpCredential dataclass + __repr__ 마스킹
+   현재: (ftp_ip, ftp_id, ftp_pw) 튜플이 traceback에 비밀번호 노출
+   수정:
      @dataclass(frozen=True)
      class FtpCredentials:
-       host: str
-       user: str
-       password: str
-       
-       def __repr__(self) -> str:
-         return f'FtpCredentials(host={self.host!r}, user={self.user!r}, password=***)'
-       
-       def __str__(self) -> str:
-         return self.__repr__()
-   
-   - [ ] mark_inventory_failure(str(exc)) 에러 메시지 정제
-     def mark_inventory_failure(..., error: str):
-       # 자격증명 패턴 제거
-       sanitized = re.sub(r'(password|passwd|pwd)=[^\s,)]+', 
-                         r'\1=***', str(error))
-       # DB에 저장
-       ...
-   
-   - [ ] HTTPException(detail=str(exc)) 제거
-     except Exception as e:
-       logger.exception(e)  # 내부 로그에만 기록
-       raise HTTPException(status_code=500, 
-                          detail='Internal server error')
-
+         host: str; user: str; password: str
+         def __repr__(self): return f'FtpCredentials(host={self.host!r}, user=***, password=***)'
+   - mark_inventory_failure(str(exc)) 호출 시 자격증명 패턴 제거(re.sub)
    예상 기간: 2시간
-
-3. [ ] DB 자격증명 기본값 제거 (SEC-03)
-   파일: backend/db.py, backend/app/config.py
-   
-   - [ ] 기본값 삭제 및 시작 시 검증
-     if not POSTGRES_URL:
-       raise RuntimeError('POSTGRES_URL environment variable not set')
-     if not MONGO_URL:
-       raise RuntimeError('MONGO_URL environment variable not set')
-   
-   - [ ] config.py에서 validation
-     class Config:
-       POSTGRES_URL: str = Field(...)  # 기본값 없음
-       MONGO_URL: str = Field(...)
-       
-       @field_validator('POSTGRES_URL', 'MONGO_URL')
-       @classmethod
-       def urls_required(cls, v):
-         if not v:
-           raise ValueError('DB URL cannot be empty')
-         return v
-
-   예상 기간: 1시간
 ```
 
 ### 6-2. High 우선순위 보안
 
 ```
-✅ Phase 2 보안 수정 항목 (FIX-SEC-02)
+✅ Phase 2 보안 수정 (FIX-SEC-02)
 
-1. [ ] CORS 미들웨어 추가 (SEC-04)
-   파일: backend/app/main.py
-   
-   from fastapi.middleware.cors import CORSMiddleware
-   
-   CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
-   
-   app.add_middleware(
-     CORSMiddleware,
-     allow_origins=CORS_ORIGINS,
-     allow_credentials=True,
-     allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
-     allow_headers=['*'],
-   )
-
-   예상 기간: 1시간
-
-2. [ ] API Key 기반 인증 미들웨어 (SEC-05)
+1. [ ] C-05: 인증/권한 미들웨어 도입
    파일: backend/app/dependencies/auth.py (신규)
-   
-   def verify_api_key(x_api_key: str = Header(...)) -> str:
-     valid_keys = os.getenv('VALID_API_KEYS', '').split(',')
-     if x_api_key not in valid_keys:
-       raise HTTPException(status_code=401, detail='Invalid API Key')
-     return x_api_key
-   
-   # 모든 ops 라우터에 Depends(verify_api_key) 부착
-   @router.post('/cas/save')
-   async def save_cas(..., api_key: str = Depends(verify_api_key)):
-     ...
+   - 사내 SSO 또는 API Key 기반 Depends 미들웨어
+   - actorName/actorTeam을 클라이언트 임의 지정 차단 → 인증 토큰에서 추출
+   예상 기간: 1-2일
 
+2. [ ] C-04: bare except → logging 전환 (51건+)
+   파일: recipe_test_impl.py 34건, file_ops_service.py 11건, recipe_inventory_sync.py 6건
+   수정:
+     except ftplib.all_errors as e:
+         logger.exception("FTP error")
+     except Exception:
+         logger.exception("Unexpected error")
+         raise
+   예상 기간: 1-2일
+
+3. [ ] H-13: FTP_TLS 옵션 토글
+   파일: file_ops_service.py
+   - FTP_TLS_ENABLED env로 ftplib.FTP_TLS + prot_p() 사용 여부 결정
    예상 기간: 2시간
 
-3. [ ] bare except → logging 전환 (SEC-08)
-   파일: backend/app/services/file_ops_service.py, recipe_inventory_sync.py
-   
-   except Exception as e:
-     pass
-   
-   →
-   
-   except Exception as e:
-     logger.exception(f'FTP operation failed: {type(e).__name__}')
-     # 보안 로그 채널에 별도 기록
-     if isinstance(e, (ftplib.error_perm, ftplib.error_temp)):
-       security_logger.warning(f'FTP auth/perm error: {e}')
-     raise
-
+4. [ ] M-02: HTTPException(detail=str(exc)) 외부 노출 차단
+   - 내부 로그(logger.exception)와 외부 메시지("Internal server error") 분리
    예상 기간: 2시간
 ```
 
 ---
 
-## 7. 테스트/검증 계획
+## 7. 테스트 / 검증
 
 ### 7-1. 테스트 프레임워크 셋업
 
@@ -745,61 +501,42 @@ Option B (권장 중기): SQLite로 이관 (ERD §12.5 권고)
 ✅ Phase 1-2 수정 항목 (FIX-TEST-01)
 
 BackEnd:
-1. [ ] conftest.py 신설
+1. [ ] backend/tests/conftest.py 신설
    import pytest
    from fastapi.testclient import TestClient
    from app.main import app
-   
+
    @pytest.fixture
    def client():
-     return TestClient(app)
-   
+       return TestClient(app)
+
    @pytest.fixture(autouse=True)
    def mock_dependencies(monkeypatch):
-     monkeypatch.setenv('MOCK_MODE', '1')
-     monkeypatch.setattr('app.services.ftp_eqp_ip.load_lk_model_eqps',
-                        lambda: mockup_data.MOCK_EQP_OPTIONS['items'])
+       monkeypatch.setenv('MOCK_MODE', '1')
+       monkeypatch.setattr('app.services.ftp_eqp_ip.load_lk_model_eqps',
+                           lambda: mockup_data.MOCK_EQP_OPTIONS['items'])
 
-2. [ ] backend/tests/test_api_routes.py 신설
+2. [ ] backend/tests/test_api_routes.py 신설 (라우터 핸들러 happy-path)
    def test_get_eqp_options(client):
-     response = client.get('/api/recipe-test/eqp-options')
-     assert response.status_code == 200
-     assert 'items' in response.json()
-   
-   def test_post_load(client):
-     body = {'line': 'Line1', 'team': 'Team1', 'eqpId': 'EQP001'}
-     response = client.post('/api/recipe-test/load', json=body)
-     assert response.status_code in [200, 400]  # mockup이면 200, 실제 FTP 실패면 400
+       resp = client.get('/api/recipe-test/eqp-options')
+       assert resp.status_code == 200
+   def test_post_invalidate_cache(client):
+       resp = client.post('/api/recipe-test/invalidate-runtime-cache',
+                           json={'eqpId': 'EQP001'})
+       assert resp.status_code == 200
 
-3. [ ] pytest.ini 또는 pyproject.toml에 설정
-   [tool:pytest]
-   pythonpath = .
-   testpaths = tests
-   markers =
-     integration: 실제 DB 연결 테스트 (사내 환경만)
+3. [ ] pytest 설정 (pyproject.toml 또는 pytest.ini)
+   markers:
+     integration: 실제 DB 연결 (사내 환경만)
 
 예상 기간: 4-6시간
 
 FrontEnd:
 1. [ ] vitest + @vue/test-utils + jsdom 설치
-   npm install -D vitest @vitest/ui @vue/test-utils jsdom
-
-2. [ ] frontend/vite.config.ts에 vitest 설정
-   export default defineConfig({
-     test: {
-       environment: 'jsdom',
-       globals: true,
-     }
-   })
-
-3. [ ] package.json scripts 추가
-   "test": "vitest",
-   "test:ui": "vitest --ui",
-   "coverage": "vitest --coverage"
-
-4. [ ] 순수 함수 테스트부터 시작
-   - frontend/src/features/recipe_test/utils/stripFileExt.spec.ts
-   - frontend/src/features/recipe_test/utils/deepClone.spec.ts
+2. [ ] vite.config.ts에 vitest test 설정 (environment: jsdom)
+3. [ ] package.json scripts 추가: test, test:ui, coverage
+4. [ ] 순수 함수 단위 테스트부터 작성
+   - stripFileExt.spec.ts, displayJobName.spec.ts, naturalCompare.spec.ts
 
 예상 기간: 4-6시간
 ```
@@ -809,242 +546,205 @@ FrontEnd:
 ```
 ✅ Phase 2 수정 항목 (FIX-TEST-02)
 
-.github/workflows/ci.yml (신규) 또는 별도 CI 도구:
+.github/workflows/ci.yml (신규):
 
-1. [ ] 빌드 단계
-   - python -m py_compile backend/**/*.py
-   - npm run build
-   - npm run type-check (TypeScript)
+1. [ ] 빌드: python -m py_compile, npm run build, vue-tsc --noEmit
+2. [ ] 린트: ruff check backend/, eslint frontend/src/
+3. [ ] 테스트: pytest -m 'not integration' --cov, npm test
+4. [ ] 보안 스캔: bandit, grep 자격증명 패턴, windows-compatibility-check.py
+5. [ ] Windows 호환성: 경로 260자, CRLF, encoding='utf-8' 검사
 
-2. [ ] 린트 단계
-   - ruff check backend/
-   - eslint frontend/src/
-   - prettier --check frontend/
-
-3. [ ] 테스트 단계
-   - pytest backend/tests/ -m 'not integration' --cov=backend/app
-   - npm test -- --run (FrontEnd)
-   - 목표: 커버리지 60% → 80%
-
-4. [ ] 보안 스캔
-   - bandit -r backend/app/ -ll
-   - grep -r 'password.*=' backend/ (하드코딩 자격증명)
-   - windows-compatibility-check.py 실행
-
-5. [ ] Windows 호환성
-   - python windows-compatibility-check.py
-   - 경로 길이 260자 제한 검증
-   - CRLF 라인 엔딩 확인
-
-예상 기간: 4-8시간
+예상 기간: 1-2일
 ```
 
 ---
 
 ## 8. Phase별 수정 체크리스트
 
-### Phase 1: 기능 동작 (Critical 차단 해제) — 예상 1-2주
+### Phase 1: 즉시 차단 해제 + 보안 Critical (1-2주)
 
-**목표**: API 라우팅 정상화, FrontEnd 기본 기능 동작
+**목표**: 누락 엔드포인트 1건 추가, dead code/SyntaxError 정리, 보안 Critical 즉시 조치, 테스트 셋업
 
 ```
-🔴 CRITICAL BLOCKING (순서 필수):
-
-- [ ] ARCH-01: main.py에 include_router() 추가
-  상태: ❌ 미완료 (EP-01)
-  우선: 🔴 Critical
-  예상: 2-4시간
-  검증: curl http://localhost:8000/api/recipe-test/eqp-options → 200
-
-- [ ] ARCH-02: recipe_test_impl.py 또는 recipe_test.py 핸들러 정상화
-  상태: ❌ 미완료 (impl 함수 미정의)
-  우선: 🔴 Critical
-  예상: 2-4시간
-  검증: TestClient로 엔드포인트 호출 → 404 아님
-
-- [ ] ARCH-03: recipe_test_ops.py / recipe_file_ops.py prefix 정정
-  상태: ❌ 미완료
-  우선: 🔴 Critical
+🔴 CRITICAL (BE):
+- [ ] C-01 / ARCH-01-Step1: invalidate-runtime-cache 핸들러 추가
+  파일: recipe_test_impl.py
   예상: 1시간
-  검증: FrontEnd API 경로와 BE 라우트 일치
+  검증: curl POST → 200
+
+- [ ] C-02 / ARCH-01-Step2: recipe_test.py:1146 SyntaxError 수정 후 삭제
+  예상: 30분
+  검증: py_compile 성공 또는 파일 자체 삭제
+
+- [ ] C-03 / H-16 / ARCH-01-Step3: thin wrapper 5종 + recipe_test.py 삭제
+  예상: 1시간
+  검증: main.py에 미등록 dead code 0건
+
+- [ ] C-06 / SEC-01-1: CORS 미들웨어 추가
+  예상: 1시간
+
+- [ ] C-07 / SEC-01-2: FTP path traversal 검증
+  예상: 3-4시간
+
+- [ ] C-10 / SEC-01-3: DB 자격증명 기본값 제거
+  예상: 1시간
+
+- [ ] C-08 / SEC-01-4: RMS_down.py 절대경로 수정
+  예상: 30분
+
+🔴 CRITICAL (FE):
+- [ ] C-FE-01: vitest/jest 셋업
+  예상: 4시간
+
+- [ ] C-FE-02: 전역 폰트 선언
+  예상: 2시간
 
 🟠 HIGH (병렬 가능):
-
-- [ ] ERROR-01-1: FrontEnd .endswith() 오타 6곳 수정
+- [ ] H-01: backend/main.py 레거시 정리
   예상: 1시간
-  검증: grep -n "\.endswith(" → 0건
 
-- [ ] ERROR-01-2: loadHistory() 미정의 — 임시 제거 (Option A)
-  예상: 30분
-  검증: TransferCart 완료 후 에러 없음
-
-- [ ] ERROR-01-3,4,5: 한글 텍스트, compress_output_matrix, 폰트 선언
+- [ ] H-14 / SEC-01-5: FtpCredential dataclass + 자격증명 마스킹
   예상: 2시간
-  검증: npm run build 성공
 
-- [ ] ERROR-01-6: vitest/jest 셋업
-  예상: 4시간
-  검증: npm test 실행 가능
+- [ ] M-03: cloud_protected_registry 시그니처 정합화
+  예상: 1시간
 
-- [ ] API-01: 임시 API 에러 처리 개선 (MOCKUP-02)
-  예상: 2시간
-  검증: 프론트 getInventoryRecipeSnapshot() 404 시 silently skip
+- [ ] H-FE-09 / MOCKUP-02: recipeTestApi http() 에러 처리
+  예상: 2-3시간
 
-- [ ] SEC-01,02,03: 자격증명 환경변수, FTP path 검증, DB 기본값
-  예상: 6-8시간
-  검증: .env 누락 시 RuntimeError, path traversal 테스트 403
+- [ ] TEST-01: conftest.py + 기본 라우터 happy-path 테스트
+  예상: 4-6시간
 
 총 예상: 1-2주 (병렬 시 1주)
 ```
 
-### Phase 2: 안정화 (High 항목, 데이터 영속성) — 예상 3-4주
+### Phase 2: 안정화 (3-4주)
 
 ```
-- [ ] PERSIST-01: LOCAL_EDIT_BASE 환경변수 (EP-02)
-  예상: 4시간
-
-- [ ] PERSIST-02-A: history 파일 잠금 (임시)
-  예상: 2시간
-
-- [ ] PERSIST-03: ensure_schema() + WAL 모드
-  예상: 3-4시간
-
-- [ ] CONNECTIVITY-01: PostgreSQL 커넥션 풀
-  예상: 3-4시간
-
-- [ ] CONNECTIVITY-02: MongoDB 싱글톤
-  예상: 2시간
-
-- [ ] MOCKUP-01: MOCK_MODE 환경변수 분기
-  예상: 4시간
-
-- [ ] SEC-02: CORS + API Key 인증 + 에러 정규화
-  예상: 6시간
-
-- [ ] TEST-01: conftest.py + 기본 테스트 작성
-  예상: 8시간
+- [ ] C-04: bare except → logging (51건+)
+- [ ] C-05: 인증/권한 미들웨어 도입
+- [ ] PERSIST-01: RECIPE_DATA_DIR 환경변수 (temp_file_store / history_service / recipe_cache_store)
+- [ ] PERSIST-02-A: history 파일 잠금 (filelock)
+- [ ] PERSIST-03: ensure_schema 1회 실행 + WAL/busy_timeout
+- [ ] CONNECTIVITY-01: PostgreSQL 커넥션 풀 + lifespan
+- [ ] CONNECTIVITY-02: MongoDB 싱글톤 + 중복 제거
+- [ ] MOCKUP-01: MOCK_MODE 환경변수 + 서비스 분기
+- [ ] H-13: FTP_TLS 옵션
+- [ ] M-02: HTTPException detail 내부/외부 분리
+- [ ] H-FE-04: window.alert(25곳) → notify composable
+- [ ] H-FE-10: Win97ConfirmDialog ARIA + 포커스 트랩 + Escape
+- [ ] TEST-02: CI/CD 검증 게이트
 
 총 예상: 3-4주
 ```
 
-### Phase 3: 품질 향상 (Medium 항목, Windows 배포 준비) — 예상 4-6주
+### Phase 3: 품질 향상 (4-6주)
 
 ```
-- [ ] FE-03: RecipeTestPage.vue 분해 (composable 추출)
-  예상: 2-3주
-
-- [ ] FE-05: CasFileListPanel / JobFileListPanel 통합
-  예상: 3-4일
-
-- [ ] FE-06: 아키텍처 정리 (피처 간 의존성)
-  예상: 1주
-
-- [ ] DB-PERSIST-02-B: JSONL → SQLite 이관
-  예상: 3-4시간
-
-- [ ] BE-TEST: 통합 테스트 + E2E 시나리오
-  예상: 2주
-
-- [ ] Windows-01: 배포 스크립트 (EP-03)
-  예상: 3-4일
-
+- [ ] H-FE-01: RecipeTestPage.vue(4,358행) composable 분해
+- [ ] H-FE-08: CasFileListPanel / JobFileListPanel 통합
+- [ ] H-FE-05: features/history → shared/api/historyApi로 이동 (피처 의존성 제거)
+- [ ] H-FE-06: reactive Set → ref/배열 + computed
+- [ ] H-FE-07: skipWatch flag → watchPausable
+- [ ] PERSIST-02-B: JSONL → SQLite recipe_action_history 이관
+- [ ] H-03: FtpSession 컨텍스트 매니저 도입
+- [ ] H-04: eqp_master_options 4중 fallback 제거 (information_schema 1회 확인)
+- [ ] H-05: get_inventory_entry N+1 → WHERE 직접 쿼리
+- [ ] H-FE-03: SPA fallback 또는 hash 모드
+- [ ] Windows-01: 배포 스크립트 (backup.bat, start.bat)
 - [ ] Windows-02: 경로/인코딩 호환성 전수 검사
-  예상: 2-3일
 
 총 예상: 4-6주
 ```
 
-### Phase 4: 개선 (Low 항목, 장기 운영) — 지속적
+### Phase 4: 장기 개선 (지속적)
 
 ```
-- [ ] SEC-03,4: RBAC, 감사 로깅, OAuth2/MFA
-- [ ] TEST: 커버리지 80%+
-- [ ] PERF: 응답 시간 목표값 설정 및 최적화
-- [ ] UI: Win97 vs 현대 디자인 최종 결정
-- [ ] MONITOR: 성능 기준선 대시보드
+- [ ] RBAC, 감사 로깅, OAuth2/MFA
+- [ ] H-15: 전역 캐시 TTL/상한 (cachetools.TTLCache 또는 Redis)
+- [ ] H-11: print() → logging.RotatingFileHandler
+- [ ] BE/FE 커버리지 80%+
+- [ ] 성능 기준선 대시보드
+- [ ] UI 디자인 톤 최종 결정 (Win97 vs 현대)
+- [ ] API 문서화 (Swagger/OpenAPI)
 ```
 
 ---
 
-## 9. 파일별 수정 대상과 수정 목적
+## 9. 파일별 수정 대상
 
 ### BackEnd
 
-| 파일 | 현 상태 | Phase | 우선 | 수정 내용 | 예상 영향 |
-|------|--------|-------|------|---------|---------|
-| `app/main.py` | ❌ 라우터 미등록 | 1 | 🔴 C | include_router() 추가 (6개 라우터) | 모든 API 404 → 동작 |
-| `app/api/routes/recipe_test.py` | ⚠️ 2011줄, 7개만 구현 | 1-2 | 🔴 C | impl로 이전 또는 직접 등록 | 코드 정리, 유지보수성 |
-| `app/api/routes/recipe_test_impl.py` | ❌ 핸들러 미구현 | 1 | 🔴 C | 16개 함수 구현 또는 수정 | ops 엔드포인트 동작 |
-| `app/api/routes/recipe_test_ops.py` | ❌ prefix 혼동 | 1 | 🔴 C | prefix='/recipe-test'으로 정정 | API 경로 일치 |
-| `app/api/routes/recipe_file_ops.py` | ❌ prefix 혼동 | 1 | 🔴 C | prefix='/recipe-file-ops'으로 정정 | API 경로 일치 |
-| `app/api/routes/recipe_test_content.py` | ⚠️ 라우터만 | 1 | 🟠 H | /recipe-content 핸들러 구현 | 레시피 콘텐츠 조회 |
-| `app/services/temp_file_store.py` | ⚠️ tempdir 고정 | 2 | 🟠 H | RECIPE_DATA_DIR 환경변수 지원 | Windows 영속성 |
-| `app/services/recipe_cache_store.py` | ⚠️ ensure_schema 과다 | 1-2 | 🟠 H | 1회만 실행 + WAL 모드 | 성능 개선 |
-| `app/services/history_service.py` | ⚠️ JSONL 동시성 | 2 | 🟠 H | 파일 잠금 또는 SQLite 이관 | 이력 안정성 |
-| `app/services/ftp_eqp_ip.py` | ⚠️ per-request engine | 2 | 🟠 H | 커넥션 풀 싱글톤 | DB 연결 최적화 |
-| `app/services/ftp_credentials.py` | ⚠️ per-request client | 2 | 🟠 H | MongoClient 싱글톤 | MongoDB 연결 최적화 |
-| `app/services/file_ops_service.py` | 🔴 경로 검증 없음 | 1 | 🔴 C | path traversal 방지 | 보안 |
-| `app/config.py` | ⚠️ MOCK_MODE 미분기 | 1-2 | 🟠 H | MOCK_MODE 환경변수 + 분기 | mockup/real 전환 |
-| `db.py` | 🔴 기본값 위험 | 1 | 🔴 C | DB_PASSWORD 기본값 제거 | 보안 |
-| `tests/conftest.py` | ❌ 미존재 | 1 | 🟠 H | monkeypatch fixture 추가 | 테스트 기반 확보 |
+| 파일 | 현 상태 | Phase | 우선 | 수정 내용 |
+|------|--------|-------|------|---------|
+| `app/main.py` | 라우터 등록 완료, CORS/인증 미설정 | 1-2 | 🔴 C | CORS, 인증 미들웨어, lifespan(DB 풀 cleanup) 추가 |
+| `app/api/routes/recipe_test_impl.py` | 핸들러 16개 정상, invalidate-runtime-cache 누락 | 1 | 🔴 C | invalidate-runtime-cache 핸들러 추가, bare except 정리 |
+| `app/api/routes/recipe_test.py` | dead code 2,252행, line 1146 SyntaxError | 1 | 🔴 C | 삭제 (또는 SyntaxError 수정 후 삭제) |
+| `app/api/routes/recipe_test_eqp.py` | dead code (thin wrapper, main.py 미등록) | 1 | 🔴 C | 삭제 |
+| `app/api/routes/recipe_test_content.py` | dead code | 1 | 🔴 C | 삭제 |
+| `app/api/routes/recipe_test_history.py` | dead code | 1 | 🔴 C | 삭제 |
+| `app/api/routes/recipe_test_ops.py` | dead code | 1 | 🔴 C | 삭제 |
+| `app/api/routes/recipe_file_ops.py` | dead code | 1 | 🔴 C | 삭제 |
+| `app/services/file_ops_service.py` | 경로 검증 없음, bare except 11건 | 1 | 🔴 C | path traversal 방지, logging |
+| `app/services/recipe_inventory_sync.py` | 자격증명 다단계 전파, bare except 6건 | 1-2 | 🟠 H | FtpCredentials dataclass, logging |
+| `app/services/temp_file_store.py` | tempdir 고정 | 2 | 🟠 H | RECIPE_DATA_DIR 환경변수 |
+| `app/services/recipe_cache_store.py` | ensure_schema 과다, WAL 미설정, N+1 | 2 | 🟠 H | 1회 ensure + WAL + 직접 쿼리 |
+| `app/services/history_service.py` | JSONL 동시성 + O(N) | 2-3 | 🟠 H | filelock(단기) → SQLite 이관(장기) |
+| `app/services/ftp_eqp_ip.py` | per-request engine | 2 | 🟠 H | SQLAlchemy 싱글톤 |
+| `app/services/ftp_credentials.py` | per-request MongoClient | 2 | 🟠 H | MongoClient 싱글톤 |
+| `app/config.py` | MOCK_MODE 없음, DB URL 기본값 위험 | 1-2 | 🔴 C | MOCK_MODE 분기, 필수 env validation |
+| `db.py` | DB_PASSWORD 기본값 "" | 1 | 🔴 C | 기본값 제거, 시작 시 RuntimeError |
+| `backend/main.py` | 라우터 미등록 레거시 진입점 | 1 | 🟠 H | 삭제 또는 `from app.main import app` |
+| `app/RMS/RMS_down.py` | 하드코딩 Linux 절대경로 | 1 | 🔴 C | Path(__file__) 기반 |
+| `tools/recipe_inventory_worker.py` | print() 기반 로깅 | 3-4 | 🟢 L | logging.RotatingFileHandler |
+| `tests/conftest.py` | 미존재 | 1 | 🟠 H | TestClient + monkeypatch fixture |
 
 ### FrontEnd
 
-| 파일 | 현 상태 | Phase | 우선 | 수정 내용 | 예상 영향 |
-|------|--------|-------|------|---------|---------|
-| `pages/RecipeTestPage.vue` | 🔴 3522줄, 6개 C 오류 | 1-3 | 🔴 C | endswith/loadHistory/구문 오염 수정 → 분해 | 기능 복구 → 유지보수성 |
-| `index.html` | ⚠️ 폰트 미선언 | 1 | 🔴 C | body font-family 추가 | UI 정렬 |
-| `package.json` | ❌ test 스크립트 | 1 | 🔴 C | vitest 설치 + scripts 추가 | 테스트 가능 |
-| `api/recipeTestApi.ts` | ⚠️ 에러 처리 미흡 | 1 | 🟠 H | ApiError 정의, graceful fallback | 에러 안정성 |
-| `components/TopBarNav.vue` | ⚠️ 디자인 혼용 | 2 | 🟠 H | Win97 통일 또는 현대 통일 | UI 일관성 |
-| `components/Win97ConfirmDialog.vue` | ⚠️ 접근성 미흡 | 2 | 🟠 H | ARIA + 포커스 트랩 + Escape | 접근성 |
-| `components/CasFileListPanel.vue` | ⚠️ 90% 중복 | 2 | 🟡 M | JobFileListPanel과 통합 | 코드 중복 제거 |
-| `features/history/MyHistoryPage.vue` | ⚠️ 피처 의존성 | 2 | 🟡 M | shared/api/historyApi로 이동 | 피처 간 의존성 제거 |
+| 파일 | 현 상태 | Phase | 우선 | 수정 내용 |
+|------|--------|-------|------|---------|
+| `index.html` | 폰트/lang 미선언 (13줄) | 1 | 🔴 C | lang="ko", body font-family 추가 |
+| `package.json` | test 스크립트 없음 | 1 | 🔴 C | vitest 설치 + scripts |
+| `pages/RecipeTestPage.vue` | 4,358행 단일 파일, window.alert 25곳 | 1-3 | 🟠 H | Phase 1은 그대로, Phase 3에서 composable 분해 |
+| `api/recipeTestApi.ts` | http() line 121~148 에러 처리 미흡 | 1 | 🟠 H | ApiError 정의, 호출별 timeout |
+| `components/TopBarNav.vue` | 디자인 톤 충돌 | 2 | 🟠 H | Win97 또는 현대 통일 |
+| `components/Win97ConfirmDialog.vue` | ARIA 미구현 | 2 | 🟠 H | role/aria-modal, 포커스 트랩, Escape |
+| `components/CasFileListPanel.vue` | JobFileListPanel과 90% 중복 | 3 | 🟡 M | 공통 FileListPanel + 슬롯 |
+| `features/history/pages/MyHistoryPage.vue` | recipe_test 직접 import | 3 | 🟠 H | shared/api/historyApi로 이동 |
+| `router/index.ts` | createWebHistory base 없음 | 3 | 🟠 H | SPA fallback 또는 hash 모드 |
 
 ---
 
-## 10. 우선순위와 위험도 매트릭스
+## 10. 우선순위 × 위험도 매트릭스
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      우선순위 × 위험도                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│ 좌상단: 높은 우선, 낮은 위험 (빠른 개선)                         │
-│ EP-01(라우터), C-FE-01(.endswith) → 즉시 수행                   │
-│                                                                   │
-│ 우상단: 높은 우선, 높은 위험 (신중한 접근)                       │
-│ FIX-PERSIST (데이터 영속성) → 테스트 철저히                     │
-│ FIX-CONNECTIVITY (DB 풀) → 리그레션 검증                        │
-│                                                                   │
-│ 좌하단: 낮은 우선, 낮은 위험 (점진적 개선)                       │
-│ FIX-UI (디자인 통일) → 여유시간에 처리                          │
-│ FIX-LOW (코드 스타일) → Phase 4                                 │
-│                                                                   │
-│ 우하단: 낮은 우선, 높은 위험 (신중한 검토)                       │
-│ FE-03 (RecipeTestPage 분해) → Phase 3에 충분한 시간 할당        │
-│                                                                   │
-└─────────────────────────────────────────────────────────────────┘
-
 Critical (🔴 즉시):
-- EP-01 (라우터 등록) — 1-2일
-- ERROR-01-1 (.endswith) — 1시간
-- SEC-01 (path traversal) — 4시간
-- ERROR-01-6 (vitest) — 4시간
+- C-01 (invalidate-runtime-cache) — 1시간
+- C-02 (recipe_test.py SyntaxError) + C-03 (dead code 삭제) — 1-2시간
+- C-06 (CORS) — 1시간
+- C-07 (FTP path traversal) — 3-4시간
+- C-10 (DB 자격증명) — 1시간
+- C-FE-01 (vitest 셋업) — 4시간
+- C-FE-02 (전역 폰트) — 2시간
 
 High (🟠 단기 1-2주):
-- ARCH-02 (impl 함수) — 4시간
-- PERSIST-01 (LOCAL_EDIT_BASE) — 4시간
-- CONNECTIVITY-01,02 (풀) — 5시간
-- SEC-02 (CORS/API Key) — 6시간
+- C-04 (bare except 51건+) — 1-2일
+- C-05 (인증) — 1-2일
+- PERSIST-01/03 (RECIPE_DATA_DIR + WAL) — 5-7시간
+- CONNECTIVITY-01,02 (DB 풀) — 5-6시간
+- H-FE-04 (window.alert → notify) — 1-2일
+- H-FE-09 (ApiError) — 2-3시간
 
 Medium (🟡 중기 2-4주):
-- FE-03 (RecipeTestPage 분해) — 1-2주
+- H-FE-01 (RecipeTestPage 분해) — 1-2주
+- H-FE-08 (FileListPanel 통합) — 3-4일
 - TEST-01 (테스트 작성) — 1주
-- UI 통일 — 3-4일
+- UI 톤 통일 — 3-4일
 
 Low (🟢 장기):
-- Phase 4 개선 — 지속적
+- H-15 (전역 캐시 TTL)
+- API 문서화
+- 성능 대시보드
 ```
 
 ---
@@ -1058,88 +758,48 @@ Low (🟢 장기):
 
 - [ ] backup.bat 실행 (docs/windows-deployment-guide.md 참조)
   구성: .env, SQLite 파일, 이력 JSONL, cloud_protected_files.csv
-  위치: 별도 버전 관리 디렉터리 (C:\Backup\RecipeRMS\YYYYMMDD)
-  검증: 백업 파일 무결성 확인 (체크섬 또는 파일 크기)
+  위치: C:\Backup\RecipeRMS\YYYYMMDD
+  검증: 백업 파일 체크섬
 
 - [ ] Git branch 생성
-  git checkout -b phase-1-routing-fix
-  git push -u origin phase-1-routing-fix
+  git checkout -b phase-1-critical-fix
 ```
 
-### 11-2. Phase별 롤백 프로세스
+### 11-2. Phase별 롤백
 
-#### Phase 1 롤백
+#### Phase 1 롤백 (코드 정리 + 보안)
 
-**변경 범위**: 라우터 등록, FrontEnd 오타 수정
+**변경 범위**: dead code 삭제, 핸들러 1개 추가, FE 폰트/테스트 셋업, CORS/path validation/DB 자격증명
 
 ```
-Rollback Plan:
-1. [ ] Git revert
-   git revert HEAD~5..HEAD  # 최근 5커밋 되돌리기
-   git push origin phase-1-routing-fix
-
-2. [ ] 데이터 롤백 (선택)
-   Phase 1은 코드 변경만 → 데이터 롤백 불필요
-
+1. [ ] git revert <commits> → git push
+2. [ ] 데이터 롤백 불필요 (코드 변경만)
 3. [ ] 서비스 재시작
-   # Linux
-   systemctl restart recipe-rms
-   # Windows
-   net stop RecipeRMS && net start RecipeRMS
-
 4. [ ] 헬스체크
-   curl http://localhost:8000/api/recipe-test/eqp-options
-   # 만약 404: 롤백 성공 (원래 상태)
-   # 만약 200: 롤백 실패 (캐시 문제 또는 불완전한 revert)
+   curl POST /api/recipe-test/invalidate-runtime-cache → 롤백 후 404 (원래 상태)
+   curl /api/recipe-test/eqp-options → 200 유지 (등록 라우터는 영향 없음)
 ```
 
 **예상 복구 시간**: 15분
 
-#### Phase 2 롤백 (데이터 영속성)
-
-**변경 범위**: 환경변수, DB 연결 풀, SQLite 스키마
+#### Phase 2 롤백 (데이터 영속성 + 풀)
 
 ```
-Rollback Plan:
-1. [ ] DB 데이터 롤백
-   # SQLite 백업 파일을 원래 위치로 복원
-   cp C:\Backup\RecipeRMS\20260518\recipe_cache.sqlite3 \
-      C:\ProgramData\RecipeRMS\recipe_cache\recipe_cache.sqlite3
-
-2. [ ] 환경변수 원복
-   # .env를 백업본으로 교체
-   cp C:\Backup\RecipeRMS\20260518\.env backend\.env
-
-3. [ ] Code 롤백
-   git revert HEAD~N..HEAD
-
+1. [ ] DB 데이터 롤백 (SQLite 백업본 복원)
+2. [ ] .env 백업본 교체
+3. [ ] git revert
 4. [ ] 서비스 재시작
-
-5. [ ] 데이터 검증
-   # 이전 이력이 복구되었는지 확인
-   SELECT COUNT(*) FROM recipe_action_history;
-   # 백업 시점과 동일한 건수 기대
+5. [ ] 데이터 검증 (recipe_action_history 건수 비교)
 ```
 
 **예상 복구 시간**: 30분
 
-#### Phase 3 롤백 (아키텍처 정리)
-
-**변경 범위**: RecipeTestPage 분해, 컴포넌트 통합
+#### Phase 3 롤백 (아키텍처)
 
 ```
-Rollback Plan:
-1. [ ] 코드 롤백
-   git revert HEAD~M..HEAD  # 분해 이전 상태로
-
-2. [ ] 번들 재빌드
-   npm run build
-
-3. [ ] 정적 파일 배포
-   # frontend/dist/ 콘텐츠를 웹 서버에 재배포
-
-4. [ ] 브라우저 캐시 무효화
-   # 버전 번호 증가 또는 cache-busting hash 변경
+1. [ ] git revert (RecipeTestPage 분해 이전)
+2. [ ] npm run build → frontend/dist 재배포
+3. [ ] 브라우저 캐시 무효화 (cache-busting hash)
 ```
 
 **예상 복구 시간**: 10분
@@ -1148,114 +808,126 @@ Rollback Plan:
 
 ## 12. 완료 기준
 
-### Phase 1 완료 기준 (기능 동작)
+### Phase 1 완료 기준 (즉시 차단 해제 + 보안)
 
-**필수 (ALL)**:
-- [ ] `GET /api/recipe-test/eqp-options` → 200 응답 (mockup 또는 실제)
-- [ ] `POST /api/recipe-test/load` → 200/400 응답 (FTP 실패 시 400 허용)
-- [ ] `GET /api/recipe-test/cas-content` → 200 응답
-- [ ] `GET /api/recipe-test/job-content` → 200 응답
-- [ ] `GET /api/recipe-test/history` → 200 응답
-- [ ] `POST /api/recipe-test/transfer` → 200/400 응답
+**필수**:
+- [ ] `POST /api/recipe-test/invalidate-runtime-cache` → 200 응답
+- [ ] dead code(recipe_test.py + thin wrapper 5종) 삭제 → `routes/` 디렉터리 정리
+- [ ] `python -m py_compile backend/**/*.py` 0건 에러
+- [ ] CORS 헤더 정상 응답
+- [ ] DB env 누락 시 RuntimeError 발생
+- [ ] FTP path traversal 입력 → 403/400
 
 **FrontEnd**:
-- [ ] npm run build 성공 (TypeScript 오류 0건)
-- [ ] CAS/JOB 파일 목록 UI 정상 표시
-- [ ] Save As 클릭 시 TypeError 없음
-- [ ] Transfer 완료 후 UI crash 없음
+- [ ] `npm run build`, `npm run typecheck` 성공
+- [ ] `npm test` 실행 가능 (최소 1개 테스트 통과)
+- [ ] 브라우저 DevTools에서 body font-family가 Tahoma/Arial 계열
 
 **테스트**:
-- [ ] npm test 실행 가능 (0건 이상 테스트 존재)
-- [ ] pytest backend/tests/ -m 'not integration' 최소 통과
+- [ ] BE conftest.py + happy-path 테스트 최소 통과
+- [ ] FE vitest 셋업 + stripFileExt 등 순수 함수 1개 테스트 통과
 
 ### Phase 2 완료 기준 (안정화)
 
 **데이터**:
-- [ ] SQLite 동시 접근 'database is locked' 오류 0건 (WAL 모드)
-- [ ] History 이력 append 중 데이터 손실 0건 (파일 잠금)
-- [ ] Windows 재부팅 후 임시 파일 미소실 (RECIPE_DATA_DIR 사용)
+- [ ] WAL 모드로 동시 접근 시 `database is locked` 0건
+- [ ] history append 동시성에 filelock 적용 후 데이터 손실 0건
+- [ ] Windows 재부팅 후 RECIPE_DATA_DIR 영속 데이터 유지
 
 **보안**:
-- [ ] FTP path traversal 테스트 403 반환
-- [ ] 로그에 패스워드 노출 0건 (grep 검증)
-- [ ] CORS 헤더 정상 응답
-- [ ] API Key 검증 401 반환
+- [ ] 인증 토큰 없으면 401
+- [ ] bare except → logging 전환 100% (grep 검증)
+- [ ] 로그에 패스워드 노출 0건
 
 **성능**:
-- [ ] `/api/recipe-test/eqp-options` 응답 시간 < 1초 (캐시 포함)
-- [ ] 100개 파일 목록 정렬 < 500ms
+- [ ] `/api/recipe-test/eqp-options` < 1초 (캐시 포함)
+- [ ] PostgreSQL/MongoDB 커넥션 풀 재사용 확인 (메트릭)
 
 ### Phase 3 완료 기준 (품질)
 
 **테스트**:
 - [ ] BE 커버리지 ≥ 60%
 - [ ] FE 커버리지 ≥ 40%
-- [ ] E2E 시나리오 (로드 → 편집 → 저장 → 이력 조회) 통과
+- [ ] E2E 시나리오 (로드 → 편집 → 저장 → 이력) 통과
 
 **Windows 호환성**:
-- [ ] Windows 10/11 + Python 3.9+ 환경에서 정상 동작
-- [ ] 경로 길이 260자 제한 내 모든 동작
+- [ ] Windows 10/11 + Python 3.9+ 정상 동작
+- [ ] 모든 파일 open() encoding='utf-8' 명시
+- [ ] 경로 길이 260자 이내
 - [ ] CRLF 라인 엔딩 처리
 
 **아키텍처**:
-- [ ] RecipeTestPage.vue < 1000줄 (composable 분해)
+- [ ] RecipeTestPage.vue < 1,000줄 (composable 분해)
 - [ ] 피처 간 순환 의존성 0건
-- [ ] 컴포넌트 중복 코드 < 10%
+- [ ] CasFileListPanel / JobFileListPanel 통합 완료
 
 ### Phase 4 완료 기준 (운영)
 
-**모니터링**:
-- [ ] 성능 기준선 대시보드 구성 (응답 시간, 캐시 hit 율, 메모리)
-- [ ] 보안 감시 알림 자동화 (인증 실패 임계치, path traversal 시도)
-
-**문서**:
 - [ ] API 문서화 (Swagger/OpenAPI)
-- [ ] 운영 가이드 (backup, restore, 모니터링)
-- [ ] 아키텍처 문서 (컴포넌트 다이어그램, 데이터 흐름)
+- [ ] 성능 기준선 대시보드 (응답 시간, 캐시 hit, 메모리)
+- [ ] 보안 감시 알림 (인증 실패 임계치, path traversal 시도)
+- [ ] 운영 가이드 (backup/restore/모니터링)
 
 ---
 
 ## 부록. 주요 파일 변경 요약
+
+### backend/app/api/routes/recipe_test_impl.py
+
+**Before** (해당 라우터에 invalidate-runtime-cache 핸들러 없음):
+```python
+@router.get("/eqp-options")
+def get_eqp_options(...): ...
+# ... 16개 핸들러 존재, invalidate-runtime-cache 누락
+```
+
+**After**:
+```python
+class InvalidateCacheRequest(BaseModel):
+    eqpId: str
+
+@router.post("/invalidate-runtime-cache")
+def invalidate_runtime_cache(req: InvalidateCacheRequest):
+    for cache in (BOOTSTRAP_CACHE, CAS_CACHE, JOB_CACHE,
+                  RECIPE_CACHE, RECIPE_SOURCE_CACHE):
+        cache.pop(req.eqpId, None)
+    return {"status": "ok", "eqpId": req.eqpId}
+```
+
+### backend/app/api/routes/recipe_test.py
+
+**Before** (line 1146, 2,252행 dead code 파일):
+```python
+if (!target_norm):  # SyntaxError: ! 단항 연산자 없음
+    ...
+```
+
+**After**: 파일 자체 삭제 (main.py에 미등록, recipe_test_impl.py와 중복)
 
 ### backend/app/main.py
 
 **Before**:
 ```python
 app = FastAPI()
-# include_router() 호출 없음
+app.include_router(recipe_test_router, prefix="/api/recipe-test")
+app.include_router(recipe_inventory_router, prefix="/api/recipe-inventory")
+# CORS, 인증 미들웨어 없음
 ```
 
 **After**:
 ```python
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
-from app.api.routes import (
-    recipe_test_eqp, recipe_test_content, recipe_test_history,
-    recipe_test_ops, recipe_file_ops, recipe_inventory
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','),
+    allow_credentials=True,
+    allow_methods=['GET', 'POST'],
+    allow_headers=['*'],
 )
-
-for router in [
-    recipe_test_eqp.router,
-    recipe_test_content.router,
-    recipe_test_history.router,
-    recipe_test_ops.router,
-    recipe_file_ops.router,
-    recipe_inventory.router
-]:
-    app.include_router(router, prefix="/api")
-
-# CORS, Auth, Error handlers 추가 (Phase 2)
-```
-
-### frontend/src/features/recipe_test/pages/RecipeTestPage.vue
-
-**Before** (line 338):
-```javascript
-lower.endswith(extLower)  // ❌ TypeError
-```
-
-**After**:
-```javascript
-lower.endsWith(extLower)  // ✅ Correct
+app.include_router(recipe_test_router, prefix="/api/recipe-test")
+app.include_router(recipe_inventory_router, prefix="/api/recipe-inventory")
+# Phase 2: 인증 Depends, lifespan(DB 풀 cleanup) 추가
 ```
 
 ### backend/app/services/temp_file_store.py
@@ -1268,10 +940,80 @@ LOCAL_EDIT_BASE = Path(tempfile.gettempdir()) / 'recipe_test_edit'
 **After**:
 ```python
 import os
-_DATA_DIR = Path(os.getenv('RECIPE_DATA_DIR', 
-                           Path(tempfile.gettempdir()) if os.name != 'nt'
-                           else Path('C:\\ProgramData\\RecipeRMS')))
+_DATA_DIR = Path(os.getenv('RECIPE_DATA_DIR',
+                           str(Path(tempfile.gettempdir())) if os.name != 'nt'
+                           else r'C:\ProgramData\RecipeRMS'))
 LOCAL_EDIT_BASE = _DATA_DIR / 'recipe_test_edit'
+```
+
+### frontend/index.html
+
+**Before** (13줄, lang="en", 폰트 미선언):
+```html
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>recipe-ui</title>
+  </head>
+  <body><div id="app"></div></body>
+</html>
+```
+
+**After**:
+```html
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>recipe-ui</title>
+    <style>
+      body {
+        font-family: 'Tahoma', 'Arial', 'MS Sans Serif', sans-serif;
+        font-size: 13px;
+        background: #c0c0c0;
+      }
+    </style>
+  </head>
+  <body><div id="app"></div></body>
+</html>
+```
+
+### frontend/src/features/recipe_test/api/recipeTestApi.ts
+
+**Before** (line 121~148, catch any, 전역 60초 타임아웃):
+```typescript
+async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 60000)
+  try {
+    const res = await fetch(...)
+    if (!res.ok) throw new Error(await res.text() || 'API request failed')
+    return res.json() as Promise<T>
+  } catch (err: any) { ... }
+}
+```
+
+**After**:
+```typescript
+class ApiError extends Error {
+  constructor(message: string, public status: number, public payload?: unknown) {
+    super(message)
+  }
+}
+
+async function http<T>(path: string, init?: RequestInit, timeoutMs = 60000): Promise<T> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(...)
+    if (!res.ok) {
+      const text = await res.text()
+      let detail = text.slice(0, 200)
+      try { detail = JSON.parse(text)?.detail ?? detail } catch {}
+      throw new ApiError(detail, res.status)
+    }
+    return res.json() as Promise<T>
+  } finally { clearTimeout(timer) }
+}
 ```
 
 ---
@@ -1279,16 +1021,16 @@ LOCAL_EDIT_BASE = _DATA_DIR / 'recipe_test_edit'
 ## 마치며
 
 이 풀스택 수정 계획은:
-1. **Phase 1 (1-2주)**: Critical 차단 해제 → API 라우팅 정상화
-2. **Phase 2 (3-4주)**: High 안정화 → Windows 배포 가능
-3. **Phase 3 (4-6주)**: Medium 품질 → 운영 체계 확립
-4. **Phase 4 (지속적)**: Low 개선 → 프로덕션 성숙도
+1. **Phase 1 (1-2주)**: 누락 엔드포인트 1건 + dead code/SyntaxError 정리 + 보안 Critical(CORS, FTP path, DB 자격증명) + FE 폰트/테스트 셋업
+2. **Phase 2 (3-4주)**: 안정화 → bare except, 인증, 데이터 영속성(RECIPE_DATA_DIR, WAL), 연결 풀, MOCK_MODE, FE alert/접근성
+3. **Phase 3 (4-6주)**: 품질 → RecipeTestPage 분해, FileListPanel 통합, 피처 의존성 제거, JSONL→SQLite 이관, Windows 배포 스크립트
+4. **Phase 4 (지속적)**: 운영 → RBAC, 모니터링 대시보드, 캐시 TTL, API 문서화
 
-각 Phase는 **독립적으로 롤백 가능**하며, **기존 기능 보존**을 최우선으로 합니다.
+각 Phase는 **독립적으로 롤백 가능**하며, **기존 동작 보존**을 최우선으로 한다.
 
 기준 문서:
-- `docs/999-CLAUDE-backend-report.md` (123 이슈 상세)
-- `docs/999-CLAUDE-FrontEnd-report.md` (69 이슈 상세)
-- `docs/3-execution-plan.md` (기존 Phase 1-4)
-- `CLAUDE.md` (Windows 호환성, mockup/real data)
+- `docs/999-CLAUDE-backend-report.md` (Critical 10 / High 16 / Medium 5)
+- `docs/999-CLAUDE-FrontEnd-report.md` (Critical 2 / High 14 / Medium 26 / Low 20)
+- `docs/3-execution-plan.md` (Phase 1-4)
+- `CLAUDE.md` (Windows 호환성, mockup/real data 분리)
 - `docs/windows-deployment-guide.md` (배포 절차)

@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 import ftplib
+import re
 from io import BytesIO
 from typing import Any
 
 from .ftp_credentials import load_eqp_ip
 from .temp_file_store import write_local_shadow_file
+
+SAFE_FILENAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
+
+
+def _validate_filename(name: str) -> None:
+    if not name or not SAFE_FILENAME_RE.match(name):
+        raise ValueError(f"잘못된 파일명: {name!r}")
+
+
+def _validate_remote_path(path: str) -> None:
+    if '..' in path:
+        raise ValueError(f"경로 순회 차단: {path!r}")
+
 
 def connect_ftp(ftp_ip: str, ftp_id: str, ftp_pw: str) -> ftplib.FTP:
     ftp = ftplib.FTP(timeout=12)
@@ -14,6 +28,8 @@ def connect_ftp(ftp_ip: str, ftp_id: str, ftp_pw: str) -> ftplib.FTP:
     return ftp
 
 def ftp_read_bytes_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, file_name: str) -> bytes:
+    _validate_remote_path(path)
+    _validate_filename(file_name)
     ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
     try:
         ftp.cwd(path)
@@ -30,6 +46,8 @@ def ftp_read_bytes_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, fil
                 pass
 
 def ftp_write_bytes_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, file_name: str, data: bytes) -> None:
+    _validate_remote_path(path)
+    _validate_filename(file_name)
     ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
     try:
         ftp.cwd(path)
@@ -44,6 +62,8 @@ def ftp_write_bytes_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, fi
                 pass
 
 def ftp_delete_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, file_name: str) -> None:
+    _validate_remote_path(path)
+    _validate_filename(file_name)
     ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
     try:
         ftp.cwd(path)
@@ -58,6 +78,8 @@ def ftp_delete_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, file_na
                 pass
 
 def ftp_file_exists_at_path(ftp_ip: str, ftp_id: str, ftp_pw: str, path: str, file_name: str) -> bool:
+    _validate_remote_path(path)
+    _validate_filename(file_name)
     ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
     try:
         ftp.cwd(path)

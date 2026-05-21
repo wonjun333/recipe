@@ -30,10 +30,19 @@ def db_path() -> Path:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path()))
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA synchronous=NORMAL')
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 
+_schema_initialized = False
+
+
 def ensure_schema() -> None:
+    global _schema_initialized
+    if _schema_initialized:
+        return
     conn = _connect()
     try:
         conn.executescript(
@@ -110,6 +119,7 @@ def ensure_schema() -> None:
         if 'last_cache_refresh_at' not in existing_cols:
             conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_cache_refresh_at TEXT")
         conn.commit()
+        _schema_initialized = True
     finally:
         conn.close()
 
@@ -234,11 +244,35 @@ def list_inventory_entries(eqp_id: str, source_path: str | None = None, exts: li
 
 
 def get_inventory_entry(eqp_id: str, source_path: str, name: str) -> dict[str, Any] | None:
-    target = str(name or '').strip()
-    for item in list_inventory_entries(eqp_id, source_path, include_absent=True):
-        if str(item.get('name') or '').strip() == target:
-            return item
-    return None
+    ensure_schema()
+    conn = _connect()
+    try:
+        row = conn.execute(
+            'SELECT * FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+            (eqp_id, _norm_path(source_path), str(name or '').strip()),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            'eqpId': row['eqp_id'],
+            'sourcePath': row['source_path'],
+            'name': row['name'],
+            'ext': row['ext'] or '',
+            'modifiedAt': row['modified_at'] or '',
+            'size': row['size'] or '',
+            'lastLiveModifiedAt': row['last_live_modified_at'] or row['modified_at'] or '',
+            'lastLiveSize': row['last_live_size'] or row['size'] or '',
+            'lastCacheRefreshAt': row['last_cache_refresh_at'] or '',
+            'livePresent': bool(row['live_present']),
+            'firstSeenAt': row['first_seen_at'] or '',
+            'lastSeenAt': row['last_seen_at'] or '',
+            'deletedAt': row['deleted_at'] or '',
+            'latestVersionId': row['latest_version_id'],
+            'cloudProtected': bool(row['cloud_protected']) if 'cloud_protected' in row.keys() else False,
+            'retainCached': bool(row['retain_cached']) if 'retain_cached' in row.keys() else False,
+        }
+    finally:
+        conn.close()
 
 
 def _save_raw_bytes(eqp_id: str, source_path: str, name: str, modified_at: str, file_hash: str, data: bytes) -> str:

@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
   border-right:2px solid #fff;
   border-bottom:2px solid #fff;
 }
-.w97-find{ width:180px; transition:width .16s ease; }
+.w97-find{ width:180px; min-width:0; transition:width .16s ease; }
 .w97-find.compact{ width:162px; }
 .win-input.find-ok{ background:#e8f6e9; box-shadow:inset 0 0 0 1px #2f8f46; }
 .win-input.find-bad{ background:#fde8e8; box-shadow:inset 0 0 0 1px #c02f2f; }
@@ -249,7 +249,7 @@ onBeforeUnmount(() => {
 }
 .win-btn:active{ border-top:2px solid #404040; border-left:2px solid #404040; border-right:2px solid #fff; border-bottom:2px solid #fff; }
 .iconbtn{ width:34px; min-width:34px; display:flex; align-items:center; justify-content:center; padding:0; }
-.view-mode-switch{ display:flex; gap:4px; }
+.view-mode-switch{ display:flex; gap:4px; flex-shrink:0; }
 .view-btn{
   width:26px;
   height:24px;

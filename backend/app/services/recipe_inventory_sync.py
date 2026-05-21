@@ -183,7 +183,7 @@ def _preview_context_for(eqp_id: str, source_kind: str, recipe_name: str, ftp_ip
 
 def _protected_lookup_factory(eqp_id: str, source_path: str, source_kind: str) -> Callable[[str], bool]:
     def _lookup(name: str) -> bool:
-        return is_cloud_protected_file(eqp_id, source_path, name, source_kind)  # type: ignore[arg-type]
+        return is_cloud_protected_file(name)
     return _lookup
 
 
@@ -217,7 +217,7 @@ def cache_recipe_file_from_live(
     size: str,
 ) -> None:
     data = svc_ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, source_path, name)
-    protected = is_cloud_protected_file(eqp_id, source_path, name, source_kind)  # type: ignore[arg-type]
+    protected = is_cloud_protected_file(name)
     ctx = _preview_context_for(eqp_id, source_kind, name, ftp_ip, ftp_id, ftp_pw)
 
     preview = build_recipe_preview_from_bytes(
@@ -359,7 +359,7 @@ def list_cached_or_live_entries_for_source(
                     'modifiedAt': str(entry.get('modifiedAt') or ''),
                     'size': str(entry.get('size') or ''),
                     'livePresent': True,
-                    'cloudProtected': is_cloud_protected_file(eqp_id, source_path, name),  # type: ignore[arg-type]
+                    'cloudProtected': is_cloud_protected_file(name),
                 }
         except Exception:
             pass
@@ -393,7 +393,7 @@ def list_cached_or_live_entries_for_source(
         if not name:
             continue
 
-        protected = bool(item.get('cloudProtected')) or is_cloud_protected_file(eqp_id, source_path, name)  # type: ignore[arg-type]
+        protected = bool(item.get('cloudProtected')) or is_cloud_protected_file(name)
         if not protected:
             continue
 
@@ -415,7 +415,7 @@ def list_cached_or_live_entries_for_source(
             continue
 
         meta = item.get('metadata') or {}
-        protected = bool(meta.get('cloudProtected')) or is_cloud_protected_file(eqp_id, source_path, name)  # type: ignore[arg-type]
+        protected = bool(meta.get('cloudProtected')) or is_cloud_protected_file(name)
         if not protected:
             continue
 

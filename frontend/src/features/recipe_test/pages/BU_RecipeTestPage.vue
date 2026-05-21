@@ -1425,11 +1425,10 @@ const singleLinkedJobMode = computed(() => !!casSelectedSingle.value && selected
 
 const casPanelStyle = computed(() => {
   let w = 'clamp(390px, 25vw, 500px)'
-  let minW = '390px'
-  if (isCasInactive.value) { w = 'clamp(340px, 20vw, 400px)'; minW = '340px' }
-  if (isJobFocused.value || activePane.value === 'recipeArea') { w = 'clamp(340px, 20vw, 400px)'; minW = '340px' }
+  if (isCasInactive.value) w = 'clamp(280px, 18vw, 360px)'
+  if (isJobFocused.value || activePane.value === 'recipeArea') w = 'clamp(280px, 18vw, 360px)'
 
-  return { height: listPaneHeight, width: w, flexBasis: w, minWidth: minW, flexShrink: '0' }
+  return { height: listPaneHeight, width: w, flexBasis: w }
 })
 
 const casContentStyle = computed(() => {
@@ -2918,7 +2917,10 @@ async function moveCartItems() {
     const movedCount = Array.isArray(res.moved) ? res.moved.length : 0
     const failed = Array.isArray(res.failed) ? res.failed : []
     const failedMessage = failed.length
-      ? `\n실패 ${failed.length}건\n` + failed.map(x => `- ${x.targetEqpId}: ${x.name} (${x.reason})`).join('\n')
+      ? `
+실패 ${failed.length}건
+` + failed.map(x => `- ${x.targetEqpId}: ${x.name} (${x.reason})`).join('
+')
       : ''
 
     void loadHistory()
@@ -3282,7 +3284,9 @@ function casListDelete(){
         applyCasToJobsFromSelection()
 
         if (res.failed?.length) {
-          window.alert(`CAS 삭제 부분 실패\n${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('\n')}`)
+          window.alert(`CAS 삭제 부분 실패
+${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('
+')}`)
         }
       } catch (err) {
         window.alert(`CAS 삭제 실패: ${getErrorMessage(err)}`)
@@ -3501,7 +3505,9 @@ function jobListDelete(){
         sortJobsData()
         resetJobSelectionOnly()
         if (res.failed?.length) {
-          window.alert(`JOB 삭제 부분 실패\n${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('\n')}`)
+          window.alert(`JOB 삭제 부분 실패
+${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('
+')}`)
         }
       } catch (err) {
         window.alert(`JOB 삭제 실패: ${getErrorMessage(err)}`)
@@ -3663,7 +3669,9 @@ function recipeListDelete(){
         }
 
         if (res.failed?.length) {
-          window.alert(`RECIPE 삭제 부분 실패\n${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('\n')}`)
+          window.alert(`RECIPE 삭제 부분 실패
+${res.failed.map(x => `- ${x.name}: ${x.reason}`).join('
+')}`)
         }
       } catch (err) {
         window.alert(`RECIPE 삭제 실패: ${getErrorMessage(err)}`)

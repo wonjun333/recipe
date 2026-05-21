@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.recipe_inventory import router as recipe_inventory_router
 from app.api.routes.recipe_test_impl import router as recipe_test_router
 from app.settings import recipe_use_mock
-from db import get_conn
 
 
 def _mock_recipe_units(equipment_id: str | None = None) -> list[dict[str, object]]:
@@ -27,6 +29,13 @@ def _mock_recipe_units(equipment_id: str | None = None) -> list[dict[str, object
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Recipe Mock API")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(","),
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
     app.include_router(recipe_test_router, prefix="/api")
     app.include_router(recipe_inventory_router, prefix="/api")
 
@@ -68,6 +77,7 @@ def create_app() -> FastAPI:
         eq_like = f"%{equipment_id}%" if equipment_id else None
         ppid_like = f"%{ppid}%" if ppid else None
 
+        from db import get_conn
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (eq_like, eq_like, ppid_like, ppid_like))
