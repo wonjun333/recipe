@@ -34,30 +34,47 @@ MOCK_FTP_CREDS: dict[str, dict[str, str]] = {
 }
 
 # ---------------------------------------------------------------------------
-# FTP file listings  (FTP mockup)
+# FTP file listings  (FTP mockup)  — CAS 35개 / JOB 35개 / Recipe 35개
 # ---------------------------------------------------------------------------
 
-_D = "25-01-15"  # shared mock date prefix
+_PROCS    = ["OXIDE", "METAL", "STI", "POLY", "CU", "TUNG", "ALU"]
+_VARIANTS = ["A", "B", "C", "D", "E"]
+_MODES    = ["STD", "FAST", "PRO", "ECO", "AGG"]
+_STEPS    = ["01", "02", "03", "04", "05"]
+
+_DATES = [
+    "25-01-10", "25-01-15", "25-01-22",
+    "25-02-05", "25-02-14", "25-02-20",
+    "25-03-03", "25-03-11", "25-03-19",
+    "25-04-02", "25-04-09", "25-04-17",
+]
+_TIMES = [
+    "08:00AM", "08:30AM", "09:00AM", "09:30AM", "10:00AM",
+    "10:30AM", "11:00AM", "11:30AM", "13:00PM", "13:30PM",
+    "14:00PM", "14:30PM", "15:00PM", "15:30PM", "16:00PM", "16:30PM",
+]
+
+def _dt(idx: int) -> str:
+    return f"{_DATES[idx % len(_DATES)]} {_TIMES[idx % len(_TIMES)]}"
+
 
 MOCK_CAS_LIST: list[dict[str, str]] = [
-    {"name": "CAS_OXIDE_A.cas",  "modifiedAt": f"{_D} 09:30AM", "size": "512",  "rawLine": ""},
-    {"name": "CAS_OXIDE_B.cas",  "modifiedAt": f"{_D} 10:00AM", "size": "512",  "rawLine": ""},
-    {"name": "CAS_METAL_A.cas",  "modifiedAt": f"{_D} 14:20PM", "size": "512",  "rawLine": ""},
-]
+    {"name": f"CAS_{proc}_{var}.cas", "modifiedAt": _dt(i * 5 + j), "size": "512", "rawLine": ""}
+    for i, proc in enumerate(_PROCS)
+    for j, var in enumerate(_VARIANTS)
+]  # 35 items
 
 MOCK_JOB_LIST: list[dict[str, str]] = [
-    {"name": "JOB_OXIDE_STD.job",  "modifiedAt": f"{_D} 09:15AM", "size": "1024", "rawLine": ""},
-    {"name": "JOB_OXIDE_FAST.job", "modifiedAt": f"{_D} 11:00AM", "size": "1024", "rawLine": ""},
-    {"name": "JOB_METAL_STD.job",  "modifiedAt": f"{_D} 13:00PM", "size": "1024", "rawLine": ""},
-    {"name": "JOB_METAL_FAST.job", "modifiedAt": f"{_D} 13:30PM", "size": "1024", "rawLine": ""},
-]
+    {"name": f"JOB_{proc}_{mode}.job", "modifiedAt": _dt(i * 5 + j + 3), "size": "1024", "rawLine": ""}
+    for i, proc in enumerate(_PROCS)
+    for j, mode in enumerate(_MODES)
+]  # 35 items
 
 MOCK_RECIPE_LIST: list[dict[str, str]] = [
-    {"name": "RCP_OXIDE_01", "modifiedAt": f"{_D} 08:00AM", "size": "2048", "rawLine": ""},
-    {"name": "RCP_OXIDE_02", "modifiedAt": f"{_D} 08:30AM", "size": "2048", "rawLine": ""},
-    {"name": "RCP_METAL_01", "modifiedAt": f"{_D} 08:45AM", "size": "2048", "rawLine": ""},
-    {"name": "RCP_METAL_02", "modifiedAt": f"{_D} 09:00AM", "size": "2048", "rawLine": ""},
-]
+    {"name": f"RCP_{proc}_{step}", "modifiedAt": _dt(i * 5 + j + 1), "size": "2048", "rawLine": ""}
+    for i, proc in enumerate(_PROCS)
+    for j, step in enumerate(_STEPS)
+]  # 35 items
 
 MOCK_FTP_RESULT: dict = {
     "cas_list": MOCK_CAS_LIST,
@@ -74,7 +91,6 @@ MOCK_FTP_RESULT: dict = {
 
 # ---------------------------------------------------------------------------
 # FTP file contents  (FTP mockup)
-# Keys are bare file names (case-insensitive lookup via get_mock_file_text).
 # ---------------------------------------------------------------------------
 
 def _make_cas(assignments: dict[int, str]) -> str:
@@ -85,12 +101,23 @@ def _make_cas(assignments: dict[int, str]) -> str:
         lines.append("")
     return "\r\n".join(lines)
 
-_CAS_OXIDE_A = _make_cas({i: "JOB_OXIDE_STD.job"  for i in range(1, 13)}
-                          | {i: "JOB_OXIDE_FAST.job" for i in range(13, 19)})
-_CAS_OXIDE_B = _make_cas({i: "JOB_OXIDE_FAST.job" for i in range(1, 13)}
-                          | {i: "JOB_OXIDE_STD.job"  for i in range(13, 21)})
-_CAS_METAL_A = _make_cas({i: "JOB_METAL_STD.job"  for i in range(1, 11)}
-                          | {i: "JOB_METAL_FAST.job" for i in range(11, 21)})
+
+def _make_cas_for(proc: str, var_idx: int) -> str:
+    """각 variant별 슬롯 배정 패턴 (5가지)."""
+    s = f"JOB_{proc}_STD.job"
+    f_ = f"JOB_{proc}_FAST.job"
+    p = f"JOB_{proc}_PRO.job"
+    e = f"JOB_{proc}_ECO.job"
+    a = f"JOB_{proc}_AGG.job"
+    patterns = [
+        {i: s  for i in range(1, 13)} | {i: f_ for i in range(13, 19)},
+        {i: f_ for i in range(1, 13)} | {i: s  for i in range(13, 21)},
+        {i: p  for i in range(1, 11)} | {i: s  for i in range(11, 19)} | {i: f_ for i in range(19, 25)},
+        {i: e  for i in range(1, 16)} | {i: s  for i in range(16, 23)},
+        {i: a  for i in range(1, 9)}  | {i: f_ for i in range(9, 17)}  | {i: s  for i in range(17, 23)},
+    ]
+    return _make_cas(patterns[var_idx])
+
 
 def _job(p1_pol: str, p2_pol: str, p3_pol: str = "(None)", cln_recipe: str = "CLN_OXIDE_01") -> str:
     return (
@@ -145,15 +172,29 @@ def _job(p1_pol: str, p2_pol: str, p3_pol: str = "(None)", cln_recipe: str = "CL
         "Recipe=(None)\r\n"
     )
 
-MOCK_FILE_CONTENTS: dict[str, str] = {
-    "CAS_OXIDE_A.cas":  _CAS_OXIDE_A,
-    "CAS_OXIDE_B.cas":  _CAS_OXIDE_B,
-    "CAS_METAL_A.cas":  _CAS_METAL_A,
-    "JOB_OXIDE_STD.job":  _job("RCP_OXIDE_01", "RCP_OXIDE_02", "(None)", "CLN_OXIDE_01"),
-    "JOB_OXIDE_FAST.job": _job("RCP_OXIDE_02", "RCP_OXIDE_01", "(None)", "CLN_OXIDE_01"),
-    "JOB_METAL_STD.job":  _job("RCP_METAL_01", "RCP_METAL_02", "(None)", "CLN_METAL_01"),
-    "JOB_METAL_FAST.job": _job("RCP_METAL_02", "RCP_METAL_01", "(None)", "CLN_METAL_01"),
-}
+
+def _make_job_for(proc: str, mode_idx: int) -> str:
+    """각 mode별 플래튼 레시피 조합 (5가지)."""
+    r = [f"RCP_{proc}_{s}" for s in _STEPS]
+    cln = f"CLN_{proc}_01" if proc in ("OXIDE", "METAL") else "CLN_OXIDE_01"
+    configs = [
+        (r[0], r[1], "(None)", cln),   # STD
+        (r[1], r[0], "(None)", cln),   # FAST (역순)
+        (r[0], r[1], r[2],    cln),    # PRO  (3플래튼)
+        (r[2], r[3], "(None)", cln),   # ECO
+        (r[1], r[2], r[3],    cln),    # AGG  (3플래튼)
+    ]
+    p1, p2, p3, cln_r = configs[mode_idx]
+    return _job(p1, p2, p3, cln_r)
+
+
+# 모든 CAS / JOB 파일 내용 자동 생성
+MOCK_FILE_CONTENTS: dict[str, str] = {}
+for _proc in _PROCS:
+    for _j, _var in enumerate(_VARIANTS):
+        MOCK_FILE_CONTENTS[f"CAS_{_proc}_{_var}.cas"] = _make_cas_for(_proc, _j)
+    for _j, _mode in enumerate(_MODES):
+        MOCK_FILE_CONTENTS[f"JOB_{_proc}_{_mode}.job"] = _make_job_for(_proc, _j)
 
 
 def get_mock_file_text(file_name: str) -> str:
@@ -169,61 +210,75 @@ def get_mock_file_text(file_name: str) -> str:
 # Recipe source list items  (FTP mockup for RECIPE_SOURCE_CONFIG paths)
 # ---------------------------------------------------------------------------
 
-_RD = "25-01-15"
+def _src(name: str, idx: int, size: str = "2048") -> dict[str, str]:
+    return {"name": name, "modifiedAt": _dt(idx), "size": size, "rawLine": ""}
+
 
 MOCK_SOURCE_ITEMS: dict[str, list[dict[str, str]]] = {
     "polishRecipe": [
-        {"name": "RCP_OXIDE_01.pol", "modifiedAt": f"{_RD} 08:00AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_OXIDE_02.pol", "modifiedAt": f"{_RD} 08:30AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_METAL_01.pol", "modifiedAt": f"{_RD} 09:00AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_METAL_02.pol", "modifiedAt": f"{_RD} 09:30AM", "size": "2048", "rawLine": ""},
-    ],
+        _src(f"RCP_{proc}_{step}.pol", i * 5 + j)
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(_STEPS)
+    ],  # 35 items
     "conditionRecipe": [
-        {"name": "CON_OXIDE_01.con", "modifiedAt": f"{_RD} 08:00AM", "size": "1024", "rawLine": ""},
-        {"name": "CON_METAL_01.con", "modifiedAt": f"{_RD} 08:30AM", "size": "1024", "rawLine": ""},
-    ],
+        _src(f"CON_{proc}_{step}.con", i * 5 + j, "1024")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(_STEPS)
+    ],  # 35 items
     "exSituCondition": [
-        {"name": "CON_OXIDE_01.con", "modifiedAt": f"{_RD} 08:00AM", "size": "1024", "rawLine": ""},
-        {"name": "CON_METAL_01.con", "modifiedAt": f"{_RD} 08:30AM", "size": "1024", "rawLine": ""},
-    ],
+        _src(f"CON_{proc}_{step}.con", i * 5 + j + 2, "1024")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(_STEPS)
+    ],  # 35 items
     "specialExSitu": [
-        {"name": "CON_SPECIAL_01.con", "modifiedAt": f"{_RD} 08:00AM", "size": "1024", "rawLine": ""},
-    ],
+        _src(f"CON_SPECIAL_{proc}_{step:02d}.con", i * 3 + j, "1024")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "isrmAlgorithm": [
-        {"name": "ISRM_OXIDE.alg", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-        {"name": "ISRM_METAL.alg", "modifiedAt": f"{_RD} 08:30AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"ISRM_{proc}_{step:02d}.alg", i * 3 + j, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "rtpcRecipe": [
-        {"name": "RTPC_01.scx", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"RTPC_{proc}_{step:02d}.scx", i * 3 + j, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "hcluPostLoad": [
-        {"name": "CLN_OXIDE_01.cln", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-        {"name": "CLN_METAL_01.cln", "modifiedAt": f"{_RD} 08:30AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"CLN_{proc}_{step:02d}.cln", i * 3 + j, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "hcluPreUnload": [
-        {"name": "CLN_OXIDE_01.cln", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-        {"name": "CLN_METAL_01.cln", "modifiedAt": f"{_RD} 08:30AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"CLN_{proc}_{step:02d}.cln", i * 3 + j + 1, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "megasonics": [
-        {"name": "MEG_OXIDE_01.meg", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"MEG_{proc}_{step:02d}.meg", i * 2 + j, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 3))
+    ],  # 14 items
     "brush1": [
-        {"name": "BR_OXIDE_01.br", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-        {"name": "BR_METAL_01.br", "modifiedAt": f"{_RD} 08:30AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"BR_{proc}_{step:02d}.br", i * 3 + j, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "brush2": [
-        {"name": "BR_OXIDE_01.br", "modifiedAt": f"{_RD} 08:00AM", "size": "512", "rawLine": ""},
-        {"name": "BR_METAL_01.br", "modifiedAt": f"{_RD} 08:30AM", "size": "512", "rawLine": ""},
-    ],
+        _src(f"BR_{proc}_{step:02d}.br", i * 3 + j + 2, "512")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "vaporDryer": [],
     "metrologyRecipe": [
-        {"name": "MET_OXIDE_01", "modifiedAt": f"{_RD} 08:00AM", "size": "256", "rawLine": ""},
-        {"name": "MET_METAL_01", "modifiedAt": f"{_RD} 08:30AM", "size": "256", "rawLine": ""},
-    ],
+        _src(f"MET_{proc}_{step:02d}", i * 3 + j, "256")
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(range(1, 4))
+    ],  # 21 items
     "recipe": [
-        {"name": "RCP_OXIDE_01", "modifiedAt": f"{_RD} 08:00AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_OXIDE_02", "modifiedAt": f"{_RD} 08:30AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_METAL_01", "modifiedAt": f"{_RD} 09:00AM", "size": "2048", "rawLine": ""},
-        {"name": "RCP_METAL_02", "modifiedAt": f"{_RD} 09:30AM", "size": "2048", "rawLine": ""},
-    ],
+        _src(f"RCP_{proc}_{step}", i * 5 + j + 1)
+        for i, proc in enumerate(_PROCS)
+        for j, step in enumerate(_STEPS)
+    ],  # 35 items
 }

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import logging.handlers
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.services.ftp_eqp_ip import load_eqp_ftp_credentials, load_lk_model_eqps
 from app.services.recipe_cache_store import ensure_schema, touch_inventory_state
 from app.services.recipe_inventory_sync import sync_equipment_inventory_once
+
+log = logging.getLogger("inventory_worker")
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,7 +19,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--limit', type=int, default=0, help='테스트할 설비 수 제한. 0이면 lk_model 전체')
     parser.add_argument('--concurrency', type=int, default=10, help='동시에 몇 대 설비를 병렬 스캔할지')
     parser.add_argument('--once', action='store_true', help='한 번만 돌고 종료')
+    parser.add_argument('--log-file', default='', help='로그 파일 경로. 미지정 시 stdout만 출력')
+    parser.add_argument('--log-max-mb', type=int, default=10, help='로그 파일 최대 크기(MB). 초과 시 rotate')
+    parser.add_argument('--log-backup', type=int, default=3, help='보관할 rotate 파일 수')
+    parser.add_argument('--quiet', action='store_true', help='변화/에러 없는 장비는 출력 억제')
     return parser.parse_args()
+
+
+def setup_logging(log_file: str, max_mb: int, backup: int) -> None:
+    fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt)
+    root.addHandler(ch)
+
+    if log_file:
+        fh = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=max_mb * 1024 * 1024,
+            backupCount=backup,
+            encoding='utf-8',
+        )
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
 
 
 def run_one(eqp_id: str) -> dict:
@@ -35,22 +63,36 @@ def run_one(eqp_id: str) -> dict:
 def main() -> None:
     """웹 백엔드와 분리해서 실행하는 inventory/download worker."""
     args = parse_args()
+    setup_logging(args.log_file, args.log_max_mb, args.log_backup)
     ensure_schema()
+
     while True:
         eqps = load_lk_model_eqps(limit=args.limit or None)
         started = time.time()
-        print(f'[recipe_inventory_worker] start cycle eqps={len(eqps)} concurrency={args.concurrency}')
+        log.info(f'start cycle eqps={len(eqps)} concurrency={args.concurrency}')
+
+        total_changed = 0
+        total_errors = 0
+
         with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
             futures = {pool.submit(run_one, item['eqpId']): item['eqpId'] for item in eqps}
             for fut in as_completed(futures):
                 eqp_id = futures[fut]
                 try:
                     summary = fut.result()
-                    print(f"[recipe_inventory_worker] {eqp_id}: changed={summary.get('changedFiles')} downloaded={summary.get('downloaded')} errors={len(summary.get('errors', []))}")
+                    changed = summary.get('changedFiles') or 0
+                    errors  = len(summary.get('errors', []))
+                    total_changed += changed
+                    total_errors  += errors
+                    if not args.quiet or changed or errors:
+                        log.info(f'{eqp_id}: changed={changed} downloaded={summary.get("downloaded")} errors={errors}')
                 except Exception as e:
-                    print(f'[recipe_inventory_worker] {eqp_id}: failed -> {e}')
+                    total_errors += 1
+                    log.error(f'{eqp_id}: failed -> {e}')
+
         elapsed = time.time() - started
-        print(f'[recipe_inventory_worker] cycle done elapsed={elapsed:.1f}s')
+        log.info(f'cycle done elapsed={elapsed:.1f}s total_changed={total_changed} total_errors={total_errors}')
+
         if args.once:
             break
         sleep_for = max(0.0, float(args.interval_sec) - elapsed)
