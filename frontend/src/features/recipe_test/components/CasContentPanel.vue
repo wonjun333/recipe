@@ -260,7 +260,7 @@ function setRootRef(el: Element | null) {
   width:max-content;
   min-width:100%;
   border-collapse:collapse;
-  font-size:12px;
+  font-size:13px;
   table-layout:fixed;
 }
 .cas-table th{
@@ -279,7 +279,7 @@ function setRootRef(el: Element | null) {
 .cas-td{
   border:1px solid #808080;
   padding:2px 4px;
-  font-size:10px;
+  font-size:13px;
   white-space:nowrap;
 }
 .cas-cell.sel{

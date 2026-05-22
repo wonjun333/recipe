@@ -31,3 +31,5 @@ npm run build && npm run preview
     }, true);
 })();
 
+현재 나의 문제점은 
+

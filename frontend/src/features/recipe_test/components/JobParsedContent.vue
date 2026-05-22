@@ -476,7 +476,7 @@ function emitCleanerClick(row: CleanerParsedRow, idx: number) {
   background:#e6e2da;
 }
 .tbl-wrap.tight-tbl{
-  height:220px;
+  height:228px;
   box-sizing:border-box;
 }
 .tight-tbl .tbl th,
@@ -488,7 +488,7 @@ function emitCleanerClick(row: CleanerParsedRow, idx: number) {
   width:max-content;
   min-width:100%;
   table-layout:fixed;
-  font-size:11px;
+  font-size:13px;
   background:#fff;
 }
 .tbl th,
