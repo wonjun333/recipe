@@ -17,7 +17,7 @@
         <span class="bar-label">Pre-Metrology Recipe</span>
         <div
           class="recipe-box"
-          :class="{ disabled: !parsed.preMetrology.enabled, clickable: editable || isSelectableRecipeValue(parsed.preMetrology.recipe), 'missing-ref': isMissingRecipe('preMetrology') }"
+          :class="{ disabled: !parsed.preMetrology.enabled, clickable: editable || (isSelectableRecipeValue(parsed.preMetrology.recipe) && !isMissingRecipe('preMetrology')), 'missing-ref': isMissingRecipe('preMetrology') }"
           @click="emitRecipeClick(parsed.preMetrology.recipe ?? noneLabel, { sourceKind: 'metrologyRecipe', titleBase: 'Pre-Metrology Recipe', emphasizeText: 'Pre-Metrology' })"
         >
           {{ parsed.preMetrology.recipe }}
@@ -51,7 +51,7 @@
         <span class="hclu-label">HCLU Clean Recipe Post Load</span>
         <div
           class="recipe-box hclu-box"
-          :class="{ clickable: (editable || isSelectableRecipeValue(parsed.hcluRecipes?.postLoad)) && !isMissingRecipe('hclu', 'postLoad'), 'missing-ref': isMissingRecipe('hclu', 'postLoad') }"
+          :class="{ clickable: editable || (isSelectableRecipeValue(parsed.hcluRecipes?.postLoad) && !isMissingRecipe('hclu', 'postLoad')), 'missing-ref': isMissingRecipe('hclu', 'postLoad') }"
           @click="emitRecipeClick(parsed.hcluRecipes?.postLoad ?? noneLabel, { sourceKind: 'hcluPostLoad', titleBase: 'HCLU Clean Recipe Post Load' })"
         >
           {{ parsed.hcluRecipes?.postLoad || noneLabel }}
@@ -95,7 +95,7 @@
         <span class="hclu-label">HCLU Clean Recipe Pre Unload</span>
         <div
           class="recipe-box hclu-box"
-          :class="{ clickable: (editable || isSelectableRecipeValue(parsed.hcluRecipes?.preUnload)) && !isMissingRecipe('hclu', 'preUnload'), 'missing-ref': isMissingRecipe('hclu', 'preUnload') }"
+          :class="{ clickable: editable || (isSelectableRecipeValue(parsed.hcluRecipes?.preUnload) && !isMissingRecipe('hclu', 'preUnload')), 'missing-ref': isMissingRecipe('hclu', 'preUnload') }"
           @click="emitRecipeClick(parsed.hcluRecipes?.preUnload ?? noneLabel, { sourceKind: 'hcluPreUnload', titleBase: 'HCLU Clean Recipe Pre Unload' })"
         >
           {{ parsed.hcluRecipes?.preUnload || noneLabel }}
@@ -162,7 +162,7 @@
         <span class="bar-label">Post-Metrology Recipe</span>
         <div
           class="recipe-box"
-          :class="{ disabled: !parsed.postMetrology.enabled, clickable: editable || isSelectableRecipeValue(parsed.postMetrology.recipe), 'missing-ref': isMissingRecipe('postMetrology') }"
+          :class="{ disabled: !parsed.postMetrology.enabled, clickable: editable || (isSelectableRecipeValue(parsed.postMetrology.recipe) && !isMissingRecipe('postMetrology')), 'missing-ref': isMissingRecipe('postMetrology') }"
           @click="emitRecipeClick(parsed.postMetrology.recipe ?? noneLabel, { sourceKind: 'metrologyRecipe', titleBase: 'Post-Metrology Recipe', emphasizeText: 'Post-Metrology' })"
         >
           {{ parsed.postMetrology.recipe }}
@@ -214,11 +214,12 @@ function isMissingRecipe(...parts: Array<string | number>) {
 }
 
 function jobValueCellClass(value: string, platen?: number, rowLabel?: string, missingKey?: string) {
+  const missing = !!(missingKey && isMissingRecipe(missingKey))
   return {
-    clickable: !(missingKey && isMissingRecipe(missingKey)) && (props.editable || isSelectableRecipeValue(value)),
+    clickable: (props.editable && missing) || (!missing && (props.editable || isSelectableRecipeValue(value))),
     'platen2-col': platen === 2,
     'non-polish-cell': rowLabel !== 'Polish Recipe',
-    'missing-ref': !!(missingKey && isMissingRecipe(missingKey)),
+    'missing-ref': missing,
   }
 }
 
@@ -369,6 +370,10 @@ function emitCleanerClick(row: CleanerParsedRow, idx: number) {
   pointer-events:none;
   cursor:not-allowed !important;
   text-decoration:none !important;
+}
+.missing-ref.clickable{
+  pointer-events:auto;
+  cursor:pointer !important;
 }
 .recipe-box.clickable:hover,
 .job-value-cell.clickable:hover{

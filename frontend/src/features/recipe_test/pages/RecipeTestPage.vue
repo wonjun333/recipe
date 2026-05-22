@@ -761,7 +761,7 @@ const recipeListColWidths = reactive({
 })
 
 const recipePickerColWidths = reactive({
-  name: 254,
+  name: 169,
   modifiedAt: 139,
 })
 
@@ -2460,6 +2460,37 @@ function getVisibleIndex(
 }
 
 /** clicks */
+function doSelectCas(casId:string, e:MouseEvent){
+  const list = casDisplayItems.value.map(x => x.name)
+  const idx = list.indexOf(casId)
+  const ctrl = e.ctrlKey || e.metaKey
+  const shift = e.shiftKey
+
+  if(shift && casAnchorIdx.value!==null){
+    selectRangeString(selectedCas, list, casAnchorIdx.value, idx)
+  } else if(ctrl){
+    if(selectedCas.has(casId)) selectedCas.delete(casId)
+    else selectedCas.add(casId)
+    casAnchorIdx.value=idx
+  } else {
+    selectedCas.clear()
+    selectedCas.add(casId)
+    casAnchorIdx.value=idx
+  }
+
+  casCursorIdx.value = idx
+  setCasQueryProgram(selectedCas.size===1 ? displayCasName(Array.from(selectedCas)[0]) : joinSelectedCasStr())
+  casState.value = 'ok'
+  casHint.value = ''
+  scrollIntoView(casRefs, casId)
+  applyCasToJobsFromSelection()
+
+  if (selectedCas.size === 1) {
+    activePane.value = 'casContent'
+    void fetchCasContent(Array.from(selectedCas)[0])
+  }
+}
+
 function onCasClick(casId:string, e:MouseEvent){
   activateArea('casList', 'cas')
   lastCas.value=casId
@@ -2482,74 +2513,34 @@ function onCasClick(casId:string, e:MouseEvent){
   }
 
   if(casEditMode.value){
+    const prevCasId = casSelectedSingle.value
+    if(prevCasId && casDirty(prevCasId)){
+      openConfirm({
+        title:'Warning',
+        tone:'warn',
+        message:'Cas Edit을 종료하시겠습니까? 종료한다면 변경내용은 저장되지 않습니다.',
+        onYes:()=>{
+          revertCas(prevCasId)
+          casEditMode.value=false
+          clearCasCellSelection()
+          doSelectCas(casId, e)
+        },
+        onNo:()=>{}
+      })
+      return
+    }
     casEditMode.value=false
     clearCasCellSelection()
   }
 
-  const list = casDisplayItems.value.map(x => x.name)
-  const idx = list.indexOf(casId)
-  const ctrl = e.ctrlKey || e.metaKey
-  const shift = e.shiftKey
-
-  if(shift && casAnchorIdx.value!==null){
-    selectRangeString(selectedCas, list, casAnchorIdx.value, idx)
-  } else if(ctrl){
-    if(selectedCas.has(casId)) selectedCas.delete(casId)
-    else selectedCas.add(casId)
-    casAnchorIdx.value=idx
-  } else {
-    selectedCas.clear()
-    selectedCas.add(casId)
-    casAnchorIdx.value=idx
-  }
-
-  casCursorIdx.value = idx
-
-  setCasQueryProgram(selectedCas.size===1 ? displayCasName(Array.from(selectedCas)[0]) : joinSelectedCasStr())
-  casState.value = 'ok'
-  casHint.value = ''
-
-  scrollIntoView(casRefs, casId)
-  applyCasToJobsFromSelection()
-
-  if (selectedCas.size === 1) {
-    activePane.value = 'casContent'
-    void fetchCasContent(Array.from(selectedCas)[0])
-  }
+  doSelectCas(casId, e)
 }
 
-function onJobClick(jobId:string, e:MouseEvent){
-  activateArea('jobList', 'job')
-  lastJob.value=jobId
-
-  if (jobId === JOB_NONE_ID) {
-    selectedJobs.clear()
-    selectedJobs.add(JOB_NONE_ID)
-    const noneIdx = jobDisplayItems.value.findIndex(j => j.id === JOB_NONE_ID)
-    jobCursorIdx.value = noneIdx
-    jobAnchorIdx.value = noneIdx
-    setJobQueryProgram(NONE_LABEL)
-    jobState.value = 'ok'
-    jobHint.value = ''
-    activePane.value = 'jobList'
-    return
-  }
-
+function doSelectJob(jobId:string, e:MouseEvent){
   const list = jobDisplayItems.value
   const idx = list.findIndex(j=>j.id===jobId)
   const ctrl = e.ctrlKey || e.metaKey
   const shift = e.shiftKey
-
-  if(casEditMode.value && selectedSlotCells.size>0){
-    selectedJobs.clear()
-    selectedJobs.add(jobId)
-    setJobQueryProgram(displayJobName(list.find(j=>j.id===jobId)?.jobName ?? ''))
-
-    applyJobToSelectedSlots(jobId)
-    scrollIntoView(jobRefs, jobId)
-    jobListAttention.value = false
-    return
-  }
 
   if(shift && jobAnchorIdx.value!==null){
     selectRangeJob(selectedJobs, list, jobAnchorIdx.value, idx)
@@ -2584,6 +2575,60 @@ function onJobClick(jobId:string, e:MouseEvent){
     activePane.value = 'jobList'
     void fetchJobContent(Array.from(selectedJobs)[0])
   }
+}
+
+function onJobClick(jobId:string, e:MouseEvent){
+  activateArea('jobList', 'job')
+  lastJob.value=jobId
+
+  if (jobId === JOB_NONE_ID) {
+    selectedJobs.clear()
+    selectedJobs.add(JOB_NONE_ID)
+    const noneIdx = jobDisplayItems.value.findIndex(j => j.id === JOB_NONE_ID)
+    jobCursorIdx.value = noneIdx
+    jobAnchorIdx.value = noneIdx
+    setJobQueryProgram(NONE_LABEL)
+    jobState.value = 'ok'
+    jobHint.value = ''
+    activePane.value = 'jobList'
+    return
+  }
+
+  const list = jobDisplayItems.value
+  const idx = list.findIndex(j=>j.id===jobId)
+  const ctrl = e.ctrlKey || e.metaKey
+  const shift = e.shiftKey
+
+  if(casEditMode.value && selectedSlotCells.size>0){
+    selectedJobs.clear()
+    selectedJobs.add(jobId)
+    setJobQueryProgram(displayJobName(list.find(j=>j.id===jobId)?.jobName ?? ''))
+    applyJobToSelectedSlots(jobId)
+    scrollIntoView(jobRefs, jobId)
+    jobListAttention.value = false
+    return
+  }
+
+  if(jobEditMode.value){
+    const prevJobId = selectedJobSingleReal.value?.id
+    if(prevJobId && jobDirty(prevJobId)){
+      openConfirm({
+        title:'Warning',
+        tone:'warn',
+        message:'Job Edit을 종료하시겠습니까? 종료한다면 변경내용은 저장되지 않습니다.',
+        onYes:()=>{
+          revertJob(prevJobId)
+          jobEditMode.value=false
+          doSelectJob(jobId, e)
+        },
+        onNo:()=>{}
+      })
+      return
+    }
+    jobEditMode.value=false
+  }
+
+  doSelectJob(jobId, e)
 }
 
 function onRecipePick(recipeId:string, e:MouseEvent){
@@ -3718,9 +3763,10 @@ function onGlobalClickCapture(ev: MouseEvent){
 
   if(casEditMode.value){
     const insideCasContent = casContentEl.value?.contains(target)
+    const insideCasList = casScrollEl.value?.closest('.cas-panel')?.contains(target)
     const insideJobList = jobScrollEl.value?.closest('.job-panel')?.contains(target)
     const insideJobContent = jobContentEl.value?.contains(target)
-    if(!insideCasContent && !insideJobList && !insideJobContent){
+    if(!insideCasContent && !insideCasList && !insideJobList && !insideJobContent){
       casCancelRequested()
       return
     }
@@ -3728,7 +3774,8 @@ function onGlobalClickCapture(ev: MouseEvent){
 
   if(jobEditMode.value){
     const box = jobContentEl.value
-    if(box && !box.contains(target)){
+    const insideJobList = jobScrollEl.value?.closest('.job-panel')?.contains(target)
+    if(box && !box.contains(target) && !insideJobList){
       jobCancelRequested()
       return
     }
