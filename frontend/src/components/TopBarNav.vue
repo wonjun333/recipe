@@ -1,9 +1,13 @@
 <template>
   <header class="topbar">
-    <div class="brand">Recipe</div>
+    <div class="brand">Recipe Master</div>
 
-    <nav class="nav">
-      <RouterLink to="/recipe-test" class="nav-item">Recipe Test</RouterLink>
+    <nav class="nav-center">
+      <RouterLink to="/recipe-test" class="nav-item">AMAT</RouterLink>
+      <RouterLink to="/recipe-test-ebara" class="nav-item">Ebara</RouterLink>
+    </nav>
+
+    <nav class="nav-right">
       <RouterLink to="/history" class="nav-item">My History</RouterLink>
     </nav>
   </header>
@@ -19,10 +23,9 @@ import { RouterLink } from 'vue-router'
   top: 0;
   z-index: 40;
   height: 50px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   padding: 0 14px;
   box-sizing: border-box;
   background: rgba(255, 255, 255, .96);
@@ -35,16 +38,21 @@ import { RouterLink } from 'vue-router'
   color: #111827;
   white-space: nowrap;
 }
-.nav {
+.nav-center {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  gap: 4px;
+}
+.nav-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 .nav-item {
   text-decoration: none;
   color: #334155;
-  padding: 6px 10px;
+  padding: 6px 14px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 700;

@@ -17,6 +17,7 @@
             <span v-if="editMode" class="edit-pill edit-pill-strong">EDIT</span>
 
             <template v-if="!editMode">
+              <button class="win-btn save-btn" @click="emit('save-as')">Save As</button>
               <button class="win-btn save-btn" @click="emit('enter-edit')">Edit</button>
             </template>
             <template v-else>
@@ -62,6 +63,7 @@ const emit = defineEmits<{
   (e: 'activate'): void
   (e: 'open-menu', event: MouseEvent): void
   (e: 'register-content-el', el: HTMLElement | null): void
+  (e: 'save-as'): void
   (e: 'enter-edit'): void
   (e: 'save'): void
   (e: 'cancel'): void

@@ -32,6 +32,7 @@ from app.services.file_ops_service import (
 from app.services.recipe_preview_service import build_recipe_preview_from_bytes, build_source_recipe_preview, create_no_preview_recipe
 from app.services.temp_file_store import LOCAL_EDIT_BASE, write_local_shadow_file as svc_write_local_shadow_file
 from app.services.history_service import append_history_entry, list_history_entries
+from app.services.history_comment_store import get_all_comments, set_comment as set_history_comment
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
 from app.services.recipe_cache_store import get_latest_version
 
@@ -1807,6 +1808,30 @@ def get_job_content(eqpId: str, jobId: str):
 def get_history(limit: int = 500):
     try:
         return {'items': list_history_entries(limit)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get('/history-comments')
+def get_history_comments():
+    try:
+        return {'comments': get_all_comments()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put('/history-comment')
+def put_history_comment(body: dict):
+    try:
+        group_key = str(body.get('groupKey', '')).strip()
+        comment = str(body.get('comment', '')).strip()
+        comment_author = str(body.get('commentAuthor', '')).strip()
+        if not group_key:
+            raise HTTPException(status_code=422, detail='groupKey is required')
+        set_history_comment(group_key, comment, comment_author)
+        return {'status': 'ok'}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

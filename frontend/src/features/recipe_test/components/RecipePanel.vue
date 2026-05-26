@@ -561,6 +561,7 @@ onBeforeUnmount(() => {
 .list-li{
   padding:0;
   cursor:pointer;
+  user-select:none;
   line-height:18px;
   font-weight:700;
   font-size:12px;

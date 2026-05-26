@@ -146,6 +146,7 @@
         @activate="activateArea('jobContent', 'job')"
         @open-menu="onJobContentMenu"
         @register-content-el="setJobContentRoot"
+        @save-as="jobContentSaveAs"
         @enter-edit="jobContentEnterEdit"
         @save="jobSaveClicked"
         @cancel="jobCancelRequested"
@@ -4032,7 +4033,10 @@ function applyInventoryRecipeSnapshot(snapshot: any) {
   Object.keys(recipeSourceCache).forEach((k) => {
     if (!(k in nextSourceCache)) delete recipeSourceCache[k]
   })
-  Object.entries(nextSourceCache).forEach(([k, v]) => { recipeSourceCache[k] = v })
+  Object.entries(nextSourceCache).forEach(([k, v]) => {
+    if (v.length === 0 && (recipeSourceCache[k]?.length ?? 0) > 0) return
+    recipeSourceCache[k] = v
+  })
 
   if (activeRecipeSourceKind.value === 'recipe') {
     recipesData.value = [...recipeUnion]
@@ -4044,7 +4048,7 @@ function applyInventoryRecipeSnapshot(snapshot: any) {
 }
 
 async function pollInventoryRecipeSnapshot() {
-  if (!eqpId.value || !hasLoadedFiles.value || inventorySnapshotReloading.value) return
+  if (!eqpId.value || !hasLoadedFiles.value || inventorySnapshotReloading.value || recipePicker.open) return
   try {
     const snapshot = await recipeTestApi.getInventoryRecipeSnapshot(eqpId.value)
     const nextHash = String(snapshot.snapshotHash || '')

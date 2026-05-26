@@ -115,6 +115,8 @@ export type TransferResultItem = { targetEqpId: string; name: string; kind: 'cas
 export type TransferResponse = { status: string; moved: TransferResultItem[]; failed?: Array<{ targetEqpId: string; name: string; kind: 'cas' | 'job' | 'recipe'; sourceEqpId: string; reason: string }> }
 export type HistoryEntry = { actorName: string; actorTeam: string; fromEqpId: string; action: string; toEqpId: string; createdAt: string; itemKind?: string; sourceName?: string; targetName?: string; recipeName?: string; requestId?: string; status?: string; reason?: string; detail?: string }
 export type HistoryResponse = { items: HistoryEntry[] }
+export type HistoryComment = { comment: string; commentAuthor: string; updatedAt: string }
+export type HistoryCommentsResponse = { comments: Record<string, HistoryComment> }
 
 const API_BASE = '.'
 
@@ -174,5 +176,7 @@ export const recipeTestApi = {
   getInventoryRecipeSnapshot(eqpId: string) { const qs = new URLSearchParams({ eqpId }).toString(); return http<InventoryRecipeSnapshotResponse>(`/api/recipe-inventory/snapshot?${qs}`) },
   invalidateRuntimeCache(eqpId: string) { return http<{ status: string; eqpId: string }>(`/api/recipe-test/invalidate-runtime-cache`, { method: 'POST', body: JSON.stringify({ eqpId }) }) },
   getHistory(limit = 500) { const qs = new URLSearchParams({ limit: String(limit) }).toString(); return http<HistoryResponse>(`/api/recipe-test/history?${qs}`) },
+  getHistoryComments() { return http<HistoryCommentsResponse>('/api/recipe-test/history-comments') },
+  putHistoryComment(groupKey: string, comment: string, commentAuthor = '') { return http<{ status: string }>('/api/recipe-test/history-comment', { method: 'PUT', body: JSON.stringify({ groupKey, comment, commentAuthor }) }) },
   cloneRecipe(eqpId: string, sourceRecipeName: string, targetRecipeName: string, sourceKind: RecipeSourceKind, actorName = '', actorTeam = '') { return http<CloneRecipeResponse>('/api/recipe-test/recipe/clone', { method: 'POST', body: JSON.stringify({ eqpId, sourceRecipeName, targetRecipeName, sourceKind, actorName, actorTeam }) }) },
 }

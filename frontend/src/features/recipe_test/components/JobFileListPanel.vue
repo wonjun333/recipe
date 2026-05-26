@@ -311,7 +311,7 @@ onBeforeUnmount(() => {
 .list-col-wide{ flex:0 0 auto; padding-right:10px; box-sizing:border-box; }
 .w97-ul{ list-style:none; padding:0; margin:0; }
 .w97-li{ padding:0; margin:0; }
-.w97-li-row{ padding:0; cursor:pointer; line-height:18px; font-weight:700; font-size:12px; min-height:22px; height:22px; display:flex; align-items:center; box-sizing:border-box; }
+.w97-li-row{ padding:0; cursor:pointer; user-select:none; line-height:18px; font-weight:700; font-size:12px; min-height:22px; height:22px; display:flex; align-items:center; box-sizing:border-box; }
 .w97-li-row.detail-row{ overflow:hidden; }
 .w97-li-row.active{ background:#0a246a; color:#fff; }
 .name-only,

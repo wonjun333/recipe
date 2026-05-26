@@ -3,7 +3,6 @@
     <header class="history-header">
       <div class="history-header-main">
         <h1>My History</h1>
-        <p>Rename, Save As, Edit, Delete, Transfer 이력을 확인합니다.</p>
       </div>
 
       <div class="history-header-side">
@@ -74,21 +73,22 @@
         <thead>
           <tr>
             <th>이름</th>
-            <th>나의분임조</th>
+            <th>분임조</th>
             <th>From 설비</th>
             <th>Action</th>
             <th>To 설비</th>
             <th>시간</th>
             <th>Recipe Name</th>
             <th>Detail</th>
+            <th class="comment-th">Comment</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="8" class="empty-row">Loading...</td>
+            <td colspan="9" class="empty-row">Loading...</td>
           </tr>
           <tr v-else-if="groupedItems.length === 0">
-            <td colspan="8" class="empty-row">이력이 없습니다.</td>
+            <td colspan="9" class="empty-row">이력이 없습니다.</td>
           </tr>
           <tr v-for="group in groupedItems" :key="group.key" class="group-row">
             <td>{{ group.actorName || 'Unknown' }}</td>
@@ -123,6 +123,7 @@
             <td class="detail-td">
               <div class="detail-summary-row">
                 <div class="detail-chip-row">
+                  <span v-if="group.detailSummaryLabel" class="detail-label-chip">{{ group.detailSummaryLabel }}</span>
                   <template v-for="(chip, idx) in group.detailSummaryChips" :key="`${group.key}-chip-${idx}`">
                     <span class="detail-chip">{{ chip }}</span>
                     <span v-if="idx < group.detailSummaryChips.length - 1" class="detail-relation">→</span>
@@ -136,6 +137,7 @@
                   <div v-if="isExpanded(group.key, 'detail')" class="detail-popover detail-overlay">
                     <div class="detail-groups">
                       <div v-for="(entry, idx) in group.detailEntries" :key="`${group.key}-detail-${idx}`" class="detail-group">
+                        <span v-if="entry.label" class="detail-label-chip">{{ entry.label }}</span>
                         <template v-for="(chip, cidx) in entry.chips" :key="`${group.key}-detail-${idx}-${cidx}`">
                           <span class="detail-chip">{{ chip }}</span>
                           <span v-if="cidx < entry.chips.length - 1" class="detail-relation">→</span>
@@ -146,6 +148,28 @@
                 </div>
               </div>
             </td>
+            <td class="comment-td" @click="startEditComment(group.key)">
+              <template v-if="editingCommentKey === group.key">
+                <input
+                  class="comment-input"
+                  :ref="el => { if (el) commentInputRefs[group.key] = el as HTMLInputElement }"
+                  v-model="editingCommentValue"
+                  type="text"
+                  placeholder="코멘트 입력..."
+                  @keydown.enter.prevent="saveComment(group.key)"
+                  @keydown.escape.prevent="cancelEditComment"
+                  @blur="saveComment(group.key)"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                <span
+                  class="comment-text"
+                  :class="{ 'comment-empty': !commentMap[group.key]?.comment }"
+                  :title="commentMap[group.key]?.commentAuthor ? `작성자: ${commentMap[group.key].commentAuthor}` : undefined"
+                >{{ commentMap[group.key]?.comment || '' }}</span>
+              </template>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -154,17 +178,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { recipeTestApi, type HistoryEntry } from '../../recipe_test/api/recipeTestApi'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { recipeTestApi, type HistoryComment, type HistoryEntry } from '../../recipe_test/api/recipeTestApi'
 
 type FilterField = 'actorName' | 'actorTeam' | 'fromEqpId' | 'toEqpId' | 'action' | 'recipeName' | 'createdAt'
 type FilterRow = { id: number; field: FilterField; value: string; dateFrom: string; dateTo: string }
-type DetailEntry = { raw: string; chips: string[] }
-type GroupedHistoryItem = { key: string; actorName: string; actorTeam: string; fromEqpId: string; toEqpIdDisplay: string; action: string; createdAt: string; recipeNames: string[]; recipeSummary: string; hasFailure: boolean; failureTooltip: string; items: Array<{ displayName: string; status: string; reason: string; detail: string }>; detailEntries: DetailEntry[]; detailSummaryChips: string[]; detailHiddenCount: number }
+type DetailEntry = { raw: string; label: string; chips: string[] }
+type GroupedHistoryItem = { key: string; actorName: string; actorTeam: string; fromEqpId: string; toEqpIdDisplay: string; action: string; createdAt: string; recipeNames: string[]; recipeSummary: string; hasFailure: boolean; failureTooltip: string; items: Array<{ displayName: string; status: string; reason: string; detail: string }>; detailEntries: DetailEntry[]; detailSummaryLabel: string; detailSummaryChips: string[]; detailHiddenCount: number }
 
 const filterOptions = [
   { value: 'actorName', label: '이름' },
-  { value: 'actorTeam', label: '나의분임조' },
+  { value: 'actorTeam', label: '분임조' },
   { value: 'fromEqpId', label: 'From 설비' },
   { value: 'toEqpId', label: 'To 설비' },
   { value: 'action', label: 'Action' },
@@ -176,6 +200,10 @@ const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const loading = ref(false)
 const items = ref<HistoryEntry[]>([])
 const filters = ref<FilterRow[]>([{ id: 1, field: 'fromEqpId', value: '', dateFrom: '', dateTo: '' }])
+const commentMap = ref<Record<string, HistoryComment>>({})
+const editingCommentKey = ref<string | null>(null)
+const editingCommentValue = ref('')
+const commentInputRefs: Record<string, HTMLInputElement> = {}
 const expandedRecipeKeys = ref<Set<string>>(new Set())
 const expandedDetailKeys = ref<Set<string>>(new Set())
 const openRangeFilterId = ref<number | null>(null)
@@ -191,33 +219,75 @@ function normalizeToEqp(row: any) { const from = normalizeText(row.fromEqpId); c
 function effectiveRecipeName(row: any) { return normalizeText(row.recipeName) || normalizeText(row.targetName) || normalizeText(row.sourceName) || '-' }
 function toDatePart(v: string) { return normalizeText(v).slice(0, 10) }
 
+function transformDetailLabel(lhs: string): string {
+  const slotMatch = lhs.match(/^Slot\s+(\d+)$/i)
+  if (slotMatch) return `#${slotMatch[1]}`
+  return lhs.replace(/\s+Recipe$/i, '').trim()
+}
+
 function parseDetailEntry(raw: string): DetailEntry {
   const text = normalizeText(raw)
-  if (!text) return { raw: '', chips: [] }
+  if (!text) return { raw: '', label: '', chips: [] }
   const trimmed = text.replace(/\s+외\s+\d+건$/, '').trim()
   if (trimmed.includes(':') && trimmed.includes('→')) {
-    const [lhs, rhs] = trimmed.split(':', 2)
+    const colonIdx = trimmed.indexOf(':')
+    const lhs = trimmed.slice(0, colonIdx).trim()
+    const rhs = trimmed.slice(colonIdx + 1).trim()
     const pair = rhs.split('→').map(s => normalizeText(s)).filter(Boolean)
-    return { raw: text, chips: [normalizeText(lhs), ...pair] }
+    return { raw: text, label: transformDetailLabel(lhs), chips: pair }
   }
   if (trimmed.includes('→')) {
-    return { raw: text, chips: trimmed.split('→').map(s => normalizeText(s)).filter(Boolean) }
+    return { raw: text, label: '', chips: trimmed.split('→').map(s => normalizeText(s)).filter(Boolean) }
   }
   const token = normalizeText(trimmed)
-  return { raw: text, chips: token ? [token] : [] }
+  return { raw: text, label: '', chips: token ? [token] : [] }
 }
 
 async function loadHistory() {
   loading.value = true
   try {
-    const res = await recipeTestApi.getHistory(3000)
-    items.value = Array.isArray(res.items) ? res.items : []
+    const [histRes, cmtRes] = await Promise.allSettled([
+      recipeTestApi.getHistory(3000),
+      recipeTestApi.getHistoryComments(),
+    ])
+    items.value = histRes.status === 'fulfilled' && Array.isArray(histRes.value.items) ? histRes.value.items : []
+    commentMap.value = cmtRes.status === 'fulfilled' ? (cmtRes.value.comments ?? {}) : {}
   } catch (err) {
     console.error(err)
     items.value = []
   } finally {
     loading.value = false
   }
+}
+
+async function startEditComment(key: string) {
+  editingCommentKey.value = key
+  editingCommentValue.value = commentMap.value[key]?.comment ?? ''
+  await nextTick()
+  commentInputRefs[key]?.focus()
+}
+
+async function saveComment(key: string) {
+  if (editingCommentKey.value !== key) return
+  const comment = editingCommentValue.value.trim()
+  editingCommentKey.value = null
+  try {
+    await recipeTestApi.putHistoryComment(key, comment)
+    if (comment) {
+      commentMap.value = { ...commentMap.value, [key]: { comment, commentAuthor: commentMap.value[key]?.commentAuthor ?? '', updatedAt: '' } }
+    } else {
+      const next = { ...commentMap.value }
+      delete next[key]
+      commentMap.value = next
+    }
+  } catch (err) {
+    console.error('comment save failed', err)
+  }
+}
+
+function cancelEditComment() {
+  editingCommentKey.value = null
+  editingCommentValue.value = ''
 }
 
 const filteredItems = computed(() => items.value.filter((row: any) => {
@@ -252,7 +322,7 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
     const detail = normalizeText((row as any).detail)
     let group = map.get(key)
     if (!group) {
-      group = { key, actorName, actorTeam, fromEqpId, toEqpIdDisplay, action, createdAt, recipeNames: [], recipeSummary: '-', hasFailure: false, failureTooltip: '', items: [], detailEntries: [], detailSummaryChips: [], detailHiddenCount: 0 }
+      group = { key, actorName, actorTeam, fromEqpId, toEqpIdDisplay, action, createdAt, recipeNames: [], recipeSummary: '-', hasFailure: false, failureTooltip: '', items: [], detailEntries: [], detailSummaryLabel: '', detailSummaryChips: [], detailHiddenCount: 0 }
       map.set(key, group)
     }
     if (recipeName && !group.recipeNames.includes(recipeName)) group.recipeNames.push(recipeName)
@@ -268,8 +338,9 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
     const failures = group.items.filter(x => x.status !== 'ok' && x.reason).map(x => x.reason)
     group.failureTooltip = failures.length ? failures.join('\n') : '일부 작업이 실패했습니다.'
     group.recipeSummary = group.recipeNames.length <= 1 ? (group.recipeNames[0] || '-') : `${group.recipeNames[0]} 외 ${group.recipeNames.length - 1}건`
-    const first = group.detailEntries[0] || { chips: [], raw: '' }
-    group.detailSummaryChips = first.chips.slice(0, 3)
+    const first = group.detailEntries[0] || { label: '', chips: [], raw: '' }
+    group.detailSummaryLabel = first.label
+    group.detailSummaryChips = first.chips.slice(0, 2)
     group.detailHiddenCount = Math.max(0, group.detailEntries.length - 1)
     return group
   })
@@ -308,7 +379,14 @@ function pickRangeDate(filter: FilterRow, iso: string) {
   if (iso < filter.dateFrom) { filter.dateTo = filter.dateFrom; filter.dateFrom = iso } else { filter.dateTo = iso }
 }
 function clearRange(filter: FilterRow) { filter.dateFrom = ''; filter.dateTo = '' }
-function onWindowClick(ev: MouseEvent) { const target = ev.target as HTMLElement | null; if (!target?.closest('.range-popover') && !target?.closest('.range-input')) openRangeFilterId.value = null }
+function onWindowClick(ev: MouseEvent) {
+  const target = ev.target as HTMLElement | null
+  if (!target?.closest('.range-popover') && !target?.closest('.range-input')) openRangeFilterId.value = null
+  if (!target?.closest('.detail-anchor')) {
+    expandedRecipeKeys.value = new Set()
+    expandedDetailKeys.value = new Set()
+  }
+}
 onMounted(() => { loadHistory(); window.addEventListener('click', onWindowClick) })
 onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 </script>
@@ -353,6 +431,7 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-anchor { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .expand-btn { border: none; background: transparent; cursor: pointer; font-size: 12px; color: #374151; }
 .detail-popover { position: absolute; top: calc(100% + 6px); left: 0; margin-top: 0; z-index: 24; background: #fff; border: 1px solid #d9deea; border-radius: 12px; box-shadow: 0 14px 30px rgba(15, 23, 42, .16); padding: 10px 12px; min-width: 260px; }
+.recipe-name-cell .detail-anchor { position: static; }
 .recipe-popover { left: 0; top: calc(100% + 6px); }
 .detail-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .detail-overlay { min-width: 320px; }
@@ -360,7 +439,14 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .detail-chip-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .detail-chip { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 999px; background: #eef4ff; color: #1f4ea3; font-weight: 700; border: 1px solid #d7e4ff; font-size: 11px; line-height: 1; }
+.detail-label-chip { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 999px; background: #fdf4ff; color: #7e22ce; font-weight: 700; border: 1px solid #e9d5ff; font-size: 11px; line-height: 1; margin-right: 2px; }
 .detail-relation { color: #64748b; font-weight: 700; font-size: 11px; }
 .detail-more { color: #6b7280; font-size: 11px; }
 .warn-icon, .to-fail-icon, .detail-fail { color: #dc2626; font-weight: 700; }
+.comment-th { min-width: 160px; width: 200px; }
+.comment-td { min-width: 160px; cursor: text; vertical-align: middle; }
+.comment-text { display: block; white-space: pre-wrap; word-break: break-word; min-height: 20px; line-height: 1.5; color: #1e293b; }
+.comment-empty::after { content: ''; display: block; min-height: 20px; }
+.comment-input { width: 100%; box-sizing: border-box; border: 1px solid #6366f1; border-radius: 6px; padding: 5px 8px; font-size: inherit; font-family: inherit; outline: none; background: #f8f8ff; }
+.comment-input:focus { box-shadow: 0 0 0 2px #c7d2fe; }
 </style>

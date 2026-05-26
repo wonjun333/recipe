@@ -281,6 +281,7 @@ function setRootRef(el: Element | null) {
   padding:2px 4px;
   font-size:13px;
   white-space:nowrap;
+  user-select:none;
 }
 .cas-cell.sel{
   background:#0a246a;
