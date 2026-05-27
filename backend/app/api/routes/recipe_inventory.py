@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from app.services.recipe_cache_store import list_open_failures, list_inventory_entries, get_latest_version
+from app.services.cloud_protected_registry import load_cloud_protected_recipe_names
 
 router = APIRouter(prefix='/recipe-inventory', tags=['recipe-inventory'])
 
@@ -29,15 +30,18 @@ def _item_id(source_kind: str, name: str) -> str:
 
 
 def _build_snapshot(eqp_id: str) -> dict:
+    cloud_names = load_cloud_protected_recipe_names()
     source_lists: dict[str, list[dict]] = {}
     union: list[dict] = []
     for source_kind, cfg in SOURCE_CONFIG.items():
         raw = list_inventory_entries(eqp_id, cfg['path'], exts=cfg['exts'], include_absent=True)
         items: list[dict] = []
+        existing_lower: set[str] = set()
         for row in raw:
             name = str(row.get('name') or '').strip()
             if not name:
                 continue
+            existing_lower.add(name.lower())
             item = {
                 'id': _item_id(source_kind, name),
                 'name': name,
@@ -49,6 +53,27 @@ def _build_snapshot(eqp_id: str) -> dict:
             }
             items.append(item)
             union.append(item)
+
+        # Inject cloud-protected files from CSV that haven't been captured yet
+        exts_lower = {str(e).lower() for e in cfg['exts']}
+        for cloud_name in cloud_names:
+            if cloud_name.lower() in existing_lower:
+                continue
+            file_ext = ('.' + cloud_name.split('.')[-1].lower()) if '.' in cloud_name else ''
+            if exts_lower and file_ext not in exts_lower:
+                continue
+            item = {
+                'id': _item_id(source_kind, cloud_name),
+                'name': cloud_name,
+                'modifiedAt': '',
+                'sourceKind': source_kind,
+                'ext': file_ext,
+                'livePresent': False,
+                'cached': False,
+            }
+            items.append(item)
+            union.append(item)
+
         items.sort(key=lambda x: x['name'].lower())
         source_lists[source_kind] = items
     # de-duplicate union by sourceKind+name

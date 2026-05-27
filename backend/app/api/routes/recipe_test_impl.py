@@ -34,7 +34,8 @@ from app.services.temp_file_store import LOCAL_EDIT_BASE, write_local_shadow_fil
 from app.services.history_service import append_history_entry, list_history_entries
 from app.services.history_comment_store import get_all_comments, set_comment as set_history_comment
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
-from app.services.recipe_cache_store import get_latest_version
+from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
+from app.services.recipe_vm_store import read_vm_file_bytes as read_vm_recipe_bytes
 
 router = APIRouter(prefix="/recipe-test", tags=["recipe-test"])
 
@@ -722,6 +723,7 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
             }
         }
 
+    ftp_failed = False
     try:
         recipe_bytes = svc_ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
         preview_context = {'eqpId': eqp_id}
@@ -731,6 +733,7 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
         if preview:
             return preview
     except Exception:
+        ftp_failed = True
         cached = get_latest_version(eqp_id, path, recipe_name)
         if cached and cached.get('preview'):
             preview = dict(cached['preview'])
@@ -741,17 +744,51 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
             preview['recipe'] = recipe
             return preview
 
+        # FTP unavailable and no stored preview — try to build from cached raw bytes
+        cached_mod = str((cached or {}).get('modifiedAt') or modified_at)
+        raw_bytes = (
+            get_latest_version_bytes(eqp_id, path, recipe_name)
+            or read_vm_recipe_bytes(eqp_id, path, recipe_name)
+        )
+        if raw_bytes:
+            preview_context = {'eqpId': eqp_id}
+            if recipe_name.lower().endswith(('.pol', '.con')):
+                try:
+                    preview_context['slurryConfig'] = load_pol_system_cfg(eqp_id)
+                except Exception:
+                    pass
+            preview = build_recipe_preview_from_bytes(recipe_id, recipe_name, cached_mod, source_kind, raw_bytes, preview_context)
+            if preview:
+                return preview
+
     if source_kind in {'isrmAlgorithm', 'rtpcRecipe'} or recipe_name.lower().endswith(('.alg', '.seg', '.scx')):
         return create_no_preview_recipe(recipe_id, recipe_name, modified_at, source_kind)
 
     try:
-        if source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
+        if not ftp_failed and source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
             recipe_text = svc_ftp_read_text_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
             preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
             if preview:
                 return preview
     except Exception:
         pass
+
+    # FTP unavailable for text-based cleaners — try cached bytes as text
+    if ftp_failed and source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
+        raw_bytes = (
+            get_latest_version_bytes(eqp_id, path, recipe_name)
+            or read_vm_recipe_bytes(eqp_id, path, recipe_name)
+        )
+        if raw_bytes:
+            for enc in ('utf-8', 'cp949', 'latin1'):
+                try:
+                    recipe_text = raw_bytes.decode(enc)
+                    preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
+                    if preview:
+                        return preview
+                    break
+                except Exception:
+                    continue
 
     return {
         "recipe": {

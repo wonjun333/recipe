@@ -7,9 +7,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 cd /home/dev/project/recipe/frontend
 npm run build && npm run preview
 
-그럼 너와 소통하려면 나는 개발자도구에서 특정 tag나 class를 한번에 알고싶어. 어떻게 해야 빨리 class를 알수 있을까? 예를 들어 지금 분임조를 표시해주는 곳을 너와 대화하려면 어떻게 해야지 소통이될까?
-이걸 알아야지 너랑 front나 다른 기능을 개발할때 좋을것 같아.
-
 
 
 (function() {
@@ -31,5 +28,25 @@ npm run build && npm run preview
     }, true);
 })();
 
-현재 나의 문제점은 
+
+현재 내가 배포할 사내 환경은 보안으로 인해서 unit recipe들이 (.pol .con .drpr .br .meg)
+사내 클라우드에 있다가 특정 시점에 설비로 다운로드 받아지고 있어.
+그래서 설비의 실시간 파싱을 하면은 클라우드에 업로드된 recipe들은 안보이기 마련이야
+나는 이를 방지하고자, 클라우드에서 설비로 다운로드 되는 recipe들을 포착하고 그것들을 따로 저장한 뒤에
+설비에서 안보이면 나만의 db 혹은 cache를 통해서 웹에 보여졌으면 좋겠어.
+그렇게 uploade 되는 recipe 목록은 ./backend/app/RMS/cloud_protected_files.csv 에있고
+해당 파일은 rcp_id라는 컬럼에 목록들이 저장되어있어.
+나는 이러한거를 지속적으로 파싱하기 위해 PYTHONPATH= python tools/recipe_inventory_worker.py --inverval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log0max-mb 10 --log-backup 3 라는 명령어를 통해
+ftp의 모든 설비를 파싱하고있어. 그런데도 문제점은 보안 영향을 받는 파일들이 웹상에 안보이거나(빨간음영으로 표시되거나), 존재한다고 누르면 placeholder만 보여지고있어.
+해당원인을 찾아주고 고쳐줘. 
+
+/home/dev/project/recipe/backend/app/services/pol_con_decoder.py
+파일을 통해서 .pol과 .con 확장자의 파일을 decode하여 웹으로 보여주고 있는데,
+이걸 역으로 보여진 웹에서 사용자가 특정 값들을 수정하면 그걸 encode해서 하나의 파일로 만들수 있을까?
+
+
+
+
+왜 내가 빌드해서 만든 웹에는 "안전하지 않음" 이라는 문제가 뜨는지 모르겠어.
+
 
