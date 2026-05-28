@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[2] / '.env')
+except Exception:
+    pass
 
 try:
     from app.services.temp_file_store import LOCAL_EDIT_BASE
@@ -20,6 +27,9 @@ _SQLITE_TIMEOUT_SEC = 30.0
 _DB_LOCK = threading.RLock()
 _WAL_CONFIGURED = False
 
+_RECIPE_CACHE_DB_URL = os.environ.get('RECIPE_CACHE_DB_URL', '').strip()
+_USE_POSTGRES = _RECIPE_CACHE_DB_URL.startswith('postgresql')
+
 
 def now_ts() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -31,7 +41,13 @@ def db_path() -> Path:
     return _DB_PATH
 
 
-def _connect() -> sqlite3.Connection:
+def _connect():
+    if _USE_POSTGRES:
+        import psycopg
+        from psycopg.rows import dict_row
+        conn = psycopg.connect(_RECIPE_CACHE_DB_URL, row_factory=dict_row)
+        conn.autocommit = False
+        return conn
     conn = sqlite3.connect(str(db_path()), timeout=_SQLITE_TIMEOUT_SEC)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA synchronous=NORMAL')
@@ -39,12 +55,23 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _sql(sql: str) -> str:
+    if _USE_POSTGRES:
+        return sql.replace('?', '%s')
+    return sql
+
+
+def _begin(conn) -> None:
+    if not _USE_POSTGRES:
+        conn.execute('BEGIN IMMEDIATE')
+
+
 _schema_initialized = False
 
 
 def _configure_wal_once() -> None:
     global _WAL_CONFIGURED
-    if _WAL_CONFIGURED:
+    if _WAL_CONFIGURED or _USE_POSTGRES:
         return
     with _DB_LOCK:
         if _WAL_CONFIGURED:
@@ -58,6 +85,14 @@ def _configure_wal_once() -> None:
             conn.close()
 
 
+def _pg_column_exists(conn, table: str, column: str) -> bool:
+    cur = conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name=%s AND column_name=%s",
+        (table, column),
+    )
+    return cur.fetchone() is not None
+
+
 def ensure_schema() -> None:
     global _schema_initialized
     if _schema_initialized:
@@ -68,83 +103,171 @@ def ensure_schema() -> None:
             return
         conn = _connect()
         try:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS equipment_inventory (
-                    eqp_id TEXT NOT NULL,
-                    source_path TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    ext TEXT,
-                    modified_at TEXT,
-                    size TEXT,
-                    last_live_modified_at TEXT,
-                    last_live_size TEXT,
-                    last_cache_refresh_at TEXT,
-                    live_present INTEGER NOT NULL DEFAULT 1,
-                    first_seen_at TEXT NOT NULL,
-                    last_seen_at TEXT NOT NULL,
-                    deleted_at TEXT,
-                    latest_version_id INTEGER,
-                    cloud_protected INTEGER NOT NULL DEFAULT 0,
-                    retain_cached INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (eqp_id, source_path, name)
-                );
-                CREATE INDEX IF NOT EXISTS idx_inventory_eqp_path ON equipment_inventory (eqp_id, source_path);
-
-                CREATE TABLE IF NOT EXISTS file_versions (
-                    version_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    eqp_id TEXT NOT NULL,
-                    source_path TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    ext TEXT,
-                    modified_at TEXT,
-                    size TEXT,
-                    captured_at TEXT NOT NULL,
-                    capture_reason TEXT NOT NULL,
-                    storage_path TEXT NOT NULL,
-                    file_hash TEXT NOT NULL,
-                    preview_json TEXT,
-                    metadata_json TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_versions_lookup ON file_versions (eqp_id, source_path, name, modified_at);
-
-                CREATE TABLE IF NOT EXISTS inventory_failures (
-                    failure_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    eqp_id TEXT NOT NULL,
-                    source_path TEXT,
-                    stage TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    resolved INTEGER NOT NULL DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_failures_eqp ON inventory_failures (eqp_id, resolved, created_at);
-
-                CREATE TABLE IF NOT EXISTS inventory_state (
-                    eqp_id TEXT PRIMARY KEY,
-                    revision INTEGER NOT NULL DEFAULT 0,
-                    inventory_hash TEXT NOT NULL DEFAULT '',
-                    file_count INTEGER NOT NULL DEFAULT 0,
-                    last_sync_at TEXT,
-                    last_changed_at TEXT,
-                    last_error TEXT
-                );
-                """
-            )
-            existing_cols = {str(row['name']) for row in conn.execute("PRAGMA table_info(equipment_inventory)").fetchall()}
-            if 'cloud_protected' not in existing_cols:
-                conn.execute("ALTER TABLE equipment_inventory ADD COLUMN cloud_protected INTEGER NOT NULL DEFAULT 0")
-            if 'retain_cached' not in existing_cols:
-                conn.execute("ALTER TABLE equipment_inventory ADD COLUMN retain_cached INTEGER NOT NULL DEFAULT 0")
-            if 'last_live_modified_at' not in existing_cols:
-                conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_live_modified_at TEXT")
-            if 'last_live_size' not in existing_cols:
-                conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_live_size TEXT")
-            if 'last_cache_refresh_at' not in existing_cols:
-                conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_cache_refresh_at TEXT")
-            conn.commit()
+            if _USE_POSTGRES:
+                _ensure_schema_postgres(conn)
+            else:
+                _ensure_schema_sqlite(conn)
             _schema_initialized = True
         finally:
             conn.close()
+
+
+def _ensure_schema_sqlite(conn) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS equipment_inventory (
+            eqp_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            ext TEXT,
+            modified_at TEXT,
+            size TEXT,
+            last_live_modified_at TEXT,
+            last_live_size TEXT,
+            last_cache_refresh_at TEXT,
+            live_present INTEGER NOT NULL DEFAULT 1,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            deleted_at TEXT,
+            latest_version_id INTEGER,
+            cloud_protected INTEGER NOT NULL DEFAULT 0,
+            retain_cached INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (eqp_id, source_path, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_inventory_eqp_path ON equipment_inventory (eqp_id, source_path);
+
+        CREATE TABLE IF NOT EXISTS file_versions (
+            version_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            eqp_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            ext TEXT,
+            modified_at TEXT,
+            size TEXT,
+            captured_at TEXT NOT NULL,
+            capture_reason TEXT NOT NULL,
+            storage_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            preview_json TEXT,
+            metadata_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_versions_lookup ON file_versions (eqp_id, source_path, name, modified_at);
+
+        CREATE TABLE IF NOT EXISTS inventory_failures (
+            failure_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            eqp_id TEXT NOT NULL,
+            source_path TEXT,
+            stage TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_failures_eqp ON inventory_failures (eqp_id, resolved, created_at);
+
+        CREATE TABLE IF NOT EXISTS inventory_state (
+            eqp_id TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0,
+            inventory_hash TEXT NOT NULL DEFAULT '',
+            file_count INTEGER NOT NULL DEFAULT 0,
+            last_sync_at TEXT,
+            last_changed_at TEXT,
+            last_error TEXT
+        );
+        """
+    )
+    existing_cols = {str(row['name']) for row in conn.execute("PRAGMA table_info(equipment_inventory)").fetchall()}
+    if 'cloud_protected' not in existing_cols:
+        conn.execute("ALTER TABLE equipment_inventory ADD COLUMN cloud_protected INTEGER NOT NULL DEFAULT 0")
+    if 'retain_cached' not in existing_cols:
+        conn.execute("ALTER TABLE equipment_inventory ADD COLUMN retain_cached INTEGER NOT NULL DEFAULT 0")
+    if 'last_live_modified_at' not in existing_cols:
+        conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_live_modified_at TEXT")
+    if 'last_live_size' not in existing_cols:
+        conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_live_size TEXT")
+    if 'last_cache_refresh_at' not in existing_cols:
+        conn.execute("ALTER TABLE equipment_inventory ADD COLUMN last_cache_refresh_at TEXT")
+    conn.commit()
+
+
+def _ensure_schema_postgres(conn) -> None:
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS equipment_inventory (
+            eqp_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            ext TEXT,
+            modified_at TEXT,
+            size TEXT,
+            last_live_modified_at TEXT,
+            last_live_size TEXT,
+            last_cache_refresh_at TEXT,
+            live_present INTEGER NOT NULL DEFAULT 1,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            deleted_at TEXT,
+            latest_version_id BIGINT,
+            cloud_protected INTEGER NOT NULL DEFAULT 0,
+            retain_cached INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (eqp_id, source_path, name)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_inventory_eqp_path ON equipment_inventory (eqp_id, source_path)",
+        """
+        CREATE TABLE IF NOT EXISTS file_versions (
+            version_id BIGSERIAL PRIMARY KEY,
+            eqp_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            ext TEXT,
+            modified_at TEXT,
+            size TEXT,
+            captured_at TEXT NOT NULL,
+            capture_reason TEXT NOT NULL,
+            storage_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            preview_json TEXT,
+            metadata_json TEXT
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_versions_lookup ON file_versions (eqp_id, source_path, name, modified_at)",
+        """
+        CREATE TABLE IF NOT EXISTS inventory_failures (
+            failure_id BIGSERIAL PRIMARY KEY,
+            eqp_id TEXT NOT NULL,
+            source_path TEXT,
+            stage TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            resolved INTEGER NOT NULL DEFAULT 0
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_failures_eqp ON inventory_failures (eqp_id, resolved, created_at)",
+        """
+        CREATE TABLE IF NOT EXISTS inventory_state (
+            eqp_id TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0,
+            inventory_hash TEXT NOT NULL DEFAULT '',
+            file_count INTEGER NOT NULL DEFAULT 0,
+            last_sync_at TEXT,
+            last_changed_at TEXT,
+            last_error TEXT
+        )
+        """,
+    ]
+    for stmt in stmts:
+        conn.execute(stmt)
+    # ALTER TABLE for missing columns (idempotent via DO NOTHING pattern)
+    for col, definition in [
+        ('cloud_protected', 'INTEGER NOT NULL DEFAULT 0'),
+        ('retain_cached', 'INTEGER NOT NULL DEFAULT 0'),
+        ('last_live_modified_at', 'TEXT'),
+        ('last_live_size', 'TEXT'),
+        ('last_cache_refresh_at', 'TEXT'),
+    ]:
+        if not _pg_column_exists(conn, 'equipment_inventory', col):
+            conn.execute(f'ALTER TABLE equipment_inventory ADD COLUMN {col} {definition}')
+    conn.commit()
 
 
 def _norm_path(path: str) -> str:
@@ -156,6 +279,32 @@ def _infer_ext(name: str) -> str:
     return ('.' + text.split('.')[-1].lower()) if '.' in text else ''
 
 
+def _upsert_inventory_sql() -> str:
+    if _USE_POSTGRES:
+        return """
+        INSERT INTO equipment_inventory
+        (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size,
+         last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at,
+         latest_version_id, cloud_protected, retain_cached)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s, NULL, %s, %s, %s)
+        ON CONFLICT (eqp_id, source_path, name) DO UPDATE SET
+          ext=EXCLUDED.ext, modified_at=EXCLUDED.modified_at, size=EXCLUDED.size,
+          last_live_modified_at=EXCLUDED.last_live_modified_at,
+          last_live_size=EXCLUDED.last_live_size,
+          last_cache_refresh_at=EXCLUDED.last_cache_refresh_at,
+          live_present=EXCLUDED.live_present, last_seen_at=EXCLUDED.last_seen_at,
+          deleted_at=EXCLUDED.deleted_at, latest_version_id=EXCLUDED.latest_version_id,
+          cloud_protected=EXCLUDED.cloud_protected, retain_cached=EXCLUDED.retain_cached
+        """
+    return """
+    INSERT OR REPLACE INTO equipment_inventory
+    (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size,
+     last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at,
+     latest_version_id, cloud_protected, retain_cached)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?)
+    """
+
+
 def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dict[str, Any]], protected_lookup: Any | None = None) -> None:
     ensure_schema()
     seen_at = now_ts()
@@ -164,7 +313,7 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
     with _DB_LOCK:
         conn = _connect()
         try:
-            conn.execute('BEGIN IMMEDIATE')
+            _begin(conn)
             for item in entries or []:
                 name = str(item.get('name') or '').strip()
                 if not name:
@@ -174,7 +323,7 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
                 modified_at = str(item.get('modifiedAt') or '').strip()
                 size = str(item.get('size') or '').strip()
                 row = conn.execute(
-                    'SELECT first_seen_at, latest_version_id, cloud_protected, retain_cached, last_cache_refresh_at FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+                    _sql('SELECT first_seen_at, latest_version_id, cloud_protected, retain_cached, last_cache_refresh_at FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?'),
                     (eqp_id, norm_source, name),
                 ).fetchone()
                 first_seen_at = str(row['first_seen_at']) if row else seen_at
@@ -185,30 +334,16 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
                 protected = bool(protected_lookup(name) if callable(protected_lookup) else prev_cloud)
                 retain_cached = 1 if (protected or prev_retain) else 0
                 conn.execute(
-                    """
-                    INSERT OR REPLACE INTO equipment_inventory
-                    (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size, last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at, latest_version_id, cloud_protected, retain_cached)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?)
-                    """,
+                    _upsert_inventory_sql(),
                     (
-                        eqp_id,
-                        norm_source,
-                        name,
-                        ext,
-                        modified_at,
-                        size,
-                        modified_at,
-                        size,
-                        prev_cache_refresh,
-                        first_seen_at,
-                        seen_at,
-                        latest_version_id,
-                        1 if protected else 0,
-                        retain_cached,
+                        eqp_id, norm_source, name, ext, modified_at, size,
+                        modified_at, size, prev_cache_refresh,
+                        first_seen_at, seen_at, latest_version_id,
+                        1 if protected else 0, retain_cached,
                     ),
                 )
             stale_rows = conn.execute(
-                'SELECT name, cloud_protected, retain_cached FROM equipment_inventory WHERE eqp_id=? AND source_path=?',
+                _sql('SELECT name, cloud_protected, retain_cached FROM equipment_inventory WHERE eqp_id=? AND source_path=?'),
                 (eqp_id, norm_source),
             ).fetchall()
             for row in stale_rows:
@@ -217,13 +352,12 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
                     prev_was_cloud = bool(int(row['cloud_protected'] or 0))
                     protected = prev_was_cloud and bool(protected_lookup(name) if callable(protected_lookup) else prev_was_cloud)
                     if prev_was_cloud and not protected:
-                        # Was cloud-protected but removed from CSV and not on FTP -> delete
                         conn.execute(
-                            'DELETE FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+                            _sql('DELETE FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?'),
                             (eqp_id, norm_source, name),
                         )
                         conn.execute(
-                            'DELETE FROM file_versions WHERE eqp_id=? AND source_path=? AND name=?',
+                            _sql('DELETE FROM file_versions WHERE eqp_id=? AND source_path=? AND name=?'),
                             (eqp_id, norm_source, name),
                         )
                     else:
@@ -231,7 +365,7 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
                         if not protected:
                             retain_cached = 0
                         conn.execute(
-                            'UPDATE equipment_inventory SET live_present=0, last_seen_at=?, deleted_at=COALESCE(deleted_at, ?), cloud_protected=?, retain_cached=? WHERE eqp_id=? AND source_path=? AND name=?',
+                            _sql('UPDATE equipment_inventory SET live_present=0, last_seen_at=?, deleted_at=COALESCE(deleted_at, ?), cloud_protected=?, retain_cached=? WHERE eqp_id=? AND source_path=? AND name=?'),
                             (seen_at, seen_at, 1 if protected else 0, int(retain_cached), eqp_id, norm_source, name),
                         )
             conn.commit()
@@ -243,10 +377,10 @@ def list_inventory_entries(eqp_id: str, source_path: str | None = None, exts: li
     ensure_schema()
     conn = _connect()
     try:
-        sql = 'SELECT * FROM equipment_inventory WHERE eqp_id=?'
+        sql = _sql('SELECT * FROM equipment_inventory WHERE eqp_id=?')
         params: list[Any] = [eqp_id]
         if source_path is not None:
-            sql += ' AND source_path=?'
+            sql += _sql(' AND source_path=?')
             params.append(_norm_path(source_path))
         if not include_absent:
             sql += ' AND live_present=1'
@@ -285,7 +419,7 @@ def get_inventory_entry(eqp_id: str, source_path: str, name: str) -> dict[str, A
     conn = _connect()
     try:
         row = conn.execute(
-            'SELECT * FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+            _sql('SELECT * FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?'),
             (eqp_id, _norm_path(source_path), str(name or '').strip()),
         ).fetchone()
         if not row:
@@ -340,26 +474,39 @@ def store_file_version(
     storage_path = _save_raw_bytes(eqp_id, norm_source, name, modified_at, digest, file_bytes)
     captured_at = now_ts()
     ext = _infer_ext(name)
+    preview_json = json.dumps(preview_payload, ensure_ascii=False) if preview_payload is not None else None
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
     with _DB_LOCK:
         conn = _connect()
         try:
-            conn.execute('BEGIN IMMEDIATE')
-            conn.execute(
-                """
-                INSERT INTO file_versions
-                (eqp_id, source_path, name, ext, modified_at, size, captured_at, capture_reason, storage_path, file_hash, preview_json, metadata_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    eqp_id, norm_source, name, ext, modified_at, size, captured_at, capture_reason,
-                    storage_path, digest,
-                    json.dumps(preview_payload, ensure_ascii=False) if preview_payload is not None else None,
-                    json.dumps(metadata or {}, ensure_ascii=False),
-                ),
-            )
-            version_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
+            _begin(conn)
+            if _USE_POSTGRES:
+                cur = conn.execute(
+                    """
+                    INSERT INTO file_versions
+                    (eqp_id, source_path, name, ext, modified_at, size, captured_at, capture_reason,
+                     storage_path, file_hash, preview_json, metadata_json)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING version_id
+                    """,
+                    (eqp_id, norm_source, name, ext, modified_at, size, captured_at, capture_reason,
+                     storage_path, digest, preview_json, metadata_json),
+                )
+                version_id = int(cur.fetchone()['version_id'])
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO file_versions
+                    (eqp_id, source_path, name, ext, modified_at, size, captured_at, capture_reason,
+                     storage_path, file_hash, preview_json, metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (eqp_id, norm_source, name, ext, modified_at, size, captured_at, capture_reason,
+                     storage_path, digest, preview_json, metadata_json),
+                )
+                version_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
             row = conn.execute(
-                'SELECT first_seen_at, cloud_protected, retain_cached, last_live_modified_at, last_live_size FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+                _sql('SELECT first_seen_at, cloud_protected, retain_cached, last_live_modified_at, last_live_size FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?'),
                 (eqp_id, norm_source, name),
             ).fetchone()
             first_seen_at = str(row['first_seen_at']) if row else captured_at
@@ -370,31 +517,15 @@ def store_file_version(
             meta = metadata or {}
             cloud_protected = 1 if bool(meta.get('cloudProtected')) else prev_cloud
             retain_cached = 1 if (cloud_protected or prev_retain) else 0
-
             new_live_mod = str(meta.get('liveModifiedAt') or modified_at or prev_live_mod or '').strip()
             new_live_size = str(meta.get('liveSize') or size or prev_live_size or '').strip()
-
             conn.execute(
-                """
-                INSERT OR REPLACE INTO equipment_inventory
-                (eqp_id, source_path, name, ext, modified_at, size, last_live_modified_at, last_live_size, last_cache_refresh_at, live_present, first_seen_at, last_seen_at, deleted_at, latest_version_id, cloud_protected, retain_cached)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?)
-                """,
+                _upsert_inventory_sql(),
                 (
-                    eqp_id,
-                    norm_source,
-                    name,
-                    ext,
-                    modified_at,
-                    size,
-                    new_live_mod,
-                    new_live_size,
-                    captured_at,
-                    first_seen_at,
-                    captured_at,
-                    version_id,
-                    cloud_protected,
-                    retain_cached,
+                    eqp_id, norm_source, name, ext, modified_at, size,
+                    new_live_mod, new_live_size, captured_at,
+                    first_seen_at, captured_at, version_id,
+                    cloud_protected, retain_cached,
                 ),
             )
             conn.commit()
@@ -408,7 +539,7 @@ def get_latest_version(eqp_id: str, source_path: str, name: str) -> dict[str, An
     conn = _connect()
     try:
         row = conn.execute(
-            'SELECT * FROM file_versions WHERE eqp_id=? AND source_path=? AND name=? ORDER BY version_id DESC LIMIT 1',
+            _sql('SELECT * FROM file_versions WHERE eqp_id=? AND source_path=? AND name=? ORDER BY version_id DESC LIMIT 1'),
             (eqp_id, _norm_path(source_path), str(name or '').strip()),
         ).fetchone()
         if not row:
@@ -449,7 +580,7 @@ def list_latest_versions(eqp_id: str, source_path: str | None = None, exts: list
     ensure_schema()
     conn = _connect()
     try:
-        sql = """
+        sql = _sql("""
         SELECT fv.*
         FROM file_versions fv
         INNER JOIN (
@@ -462,9 +593,8 @@ def list_latest_versions(eqp_id: str, source_path: str | None = None, exts: list
          AND latest.source_path = fv.source_path
          AND latest.name = fv.name
          AND latest.max_version_id = fv.version_id
-        """
-        params: list[Any] = [eqp_id]
-        rows = conn.execute(sql, tuple(params)).fetchall()
+        """)
+        rows = conn.execute(sql, (eqp_id,)).fetchall()
         allowed = {str(x).lower() for x in (exts or [])}
         results: list[dict[str, Any]] = []
         target_path = _norm_path(source_path) if source_path is not None else None
@@ -500,9 +630,9 @@ def mark_inventory_failure(eqp_id: str, source_path: str, stage: str, reason: st
     with _DB_LOCK:
         conn = _connect()
         try:
-            conn.execute('BEGIN IMMEDIATE')
+            _begin(conn)
             conn.execute(
-                'INSERT INTO inventory_failures (eqp_id, source_path, stage, reason, created_at, resolved) VALUES (?, ?, ?, ?, ?, 0)',
+                _sql('INSERT INTO inventory_failures (eqp_id, source_path, stage, reason, created_at, resolved) VALUES (?, ?, ?, ?, ?, 0)'),
                 (str(eqp_id or '').strip(), _norm_path(source_path), str(stage or '').strip(), str(reason or '').strip(), now_ts()),
             )
             conn.commit()
@@ -515,11 +645,11 @@ def resolve_inventory_failures(eqp_id: str, source_path: str | None = None) -> N
     with _DB_LOCK:
         conn = _connect()
         try:
-            conn.execute('BEGIN IMMEDIATE')
+            _begin(conn)
             if source_path is None:
-                conn.execute('UPDATE inventory_failures SET resolved=1 WHERE eqp_id=? AND resolved=0', (str(eqp_id or '').strip(),))
+                conn.execute(_sql('UPDATE inventory_failures SET resolved=1 WHERE eqp_id=? AND resolved=0'), (str(eqp_id or '').strip(),))
             else:
-                conn.execute('UPDATE inventory_failures SET resolved=1 WHERE eqp_id=? AND source_path=? AND resolved=0', (str(eqp_id or '').strip(), _norm_path(source_path)))
+                conn.execute(_sql('UPDATE inventory_failures SET resolved=1 WHERE eqp_id=? AND source_path=? AND resolved=0'), (str(eqp_id or '').strip(), _norm_path(source_path)))
             conn.commit()
         finally:
             conn.close()
@@ -530,7 +660,7 @@ def list_open_failures(limit: int = 500) -> list[dict[str, Any]]:
     conn = _connect()
     try:
         rows = conn.execute(
-            'SELECT * FROM inventory_failures WHERE resolved=0 ORDER BY created_at DESC, failure_id DESC LIMIT ?',
+            _sql('SELECT * FROM inventory_failures WHERE resolved=0 ORDER BY created_at DESC, failure_id DESC LIMIT ?'),
             (max(1, int(limit or 500)),),
         ).fetchall()
         return [{
@@ -550,7 +680,7 @@ def get_inventory_revision(eqp_id: str) -> int:
     ensure_schema()
     conn = _connect()
     try:
-        row = conn.execute('SELECT revision FROM inventory_state WHERE eqp_id=?', (eqp_id,)).fetchone()
+        row = conn.execute(_sql('SELECT revision FROM inventory_state WHERE eqp_id=?'), (eqp_id,)).fetchone()
         return int(row['revision']) if row else 0
     finally:
         conn.close()
@@ -561,18 +691,13 @@ def get_inventory_state(eqp_id: str) -> dict[str, Any]:
     conn = _connect()
     try:
         row = conn.execute(
-            'SELECT eqp_id, revision, inventory_hash, file_count, last_sync_at, last_changed_at, last_error FROM inventory_state WHERE eqp_id=?',
+            _sql('SELECT eqp_id, revision, inventory_hash, file_count, last_sync_at, last_changed_at, last_error FROM inventory_state WHERE eqp_id=?'),
             (eqp_id,),
         ).fetchone()
         if not row:
             return {
-                'eqpId': eqp_id,
-                'revision': 0,
-                'inventoryHash': '',
-                'fileCount': 0,
-                'lastSyncAt': '',
-                'lastChangedAt': '',
-                'lastError': '',
+                'eqpId': eqp_id, 'revision': 0, 'inventoryHash': '',
+                'fileCount': 0, 'lastSyncAt': '', 'lastChangedAt': '', 'lastError': '',
             }
         return {
             'eqpId': str(row['eqp_id']),
@@ -599,9 +724,9 @@ def touch_inventory_state(
     with _DB_LOCK:
         conn = _connect()
         try:
-            conn.execute('BEGIN IMMEDIATE')
+            _begin(conn)
             row = conn.execute(
-                'SELECT revision, inventory_hash, file_count, last_changed_at FROM inventory_state WHERE eqp_id=?',
+                _sql('SELECT revision, inventory_hash, file_count, last_changed_at FROM inventory_state WHERE eqp_id=?'),
                 (eqp_id,),
             ).fetchone()
             prev_revision = int(row['revision']) if row else 0
@@ -611,7 +736,7 @@ def touch_inventory_state(
             next_revision = prev_revision + 1 if effective_changed else prev_revision
             last_changed_at = sync_at if effective_changed else (str(row['last_changed_at'] or '') if row else '')
             conn.execute(
-                '''
+                _sql("""
                 INSERT INTO inventory_state (eqp_id, revision, inventory_hash, file_count, last_sync_at, last_changed_at, last_error)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(eqp_id) DO UPDATE SET
@@ -621,15 +746,10 @@ def touch_inventory_state(
                   last_sync_at=excluded.last_sync_at,
                   last_changed_at=excluded.last_changed_at,
                   last_error=excluded.last_error
-                ''',
+                """),
                 (
-                    eqp_id,
-                    next_revision,
-                    inventory_hash or prev_hash,
-                    int(file_count or prev_count),
-                    sync_at,
-                    last_changed_at,
-                    str(error or ''),
+                    eqp_id, next_revision, inventory_hash or prev_hash,
+                    int(file_count or prev_count), sync_at, last_changed_at, str(error or ''),
                 ),
             )
             conn.commit()
