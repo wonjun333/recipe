@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import ftplib
-import re
 from io import BytesIO
 from typing import Any
 
 from .ftp_credentials import load_eqp_ip
 from .temp_file_store import write_local_shadow_file
 
-SAFE_FILENAME_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
-
-
 def _validate_filename(name: str) -> None:
-    if not name or not SAFE_FILENAME_RE.match(name):
+    if not name:
+        raise ValueError(f"잘못된 파일명: {name!r}")
+    if any(ch in name for ch in ('/', '\\', '\r', '\n')) or '..' in name:
         raise ValueError(f"잘못된 파일명: {name!r}")
 
 
