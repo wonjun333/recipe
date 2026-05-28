@@ -31,7 +31,7 @@ npm run build && npm run preview
 
 (.pol .con .drpr .br .meg)
 ./backend/app/RMS/cloud_protected_files.csv
-PYTHONPATH= python tools/recipe_inventory_worker.py --interval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3 라는 명령어를 통해
+PYTHONPATH= python tools/recipe_inventory_worker.py --offline-cooldown-min 60 --concurrency 20 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3
 
 
 /home/dev/project/recipe/backend/app/services/pol_con_decoder.py

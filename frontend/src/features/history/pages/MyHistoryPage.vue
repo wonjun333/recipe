@@ -134,15 +134,15 @@
                   <button class="expand-btn" type="button" @click.stop="toggleExpand(group.key, 'detail')">
                     {{ isExpanded(group.key, 'detail') ? '▽' : '▼' }}
                   </button>
-                  <div v-if="isExpanded(group.key, 'detail')" class="detail-popover detail-overlay">
-                    <div class="detail-groups">
-                      <div v-for="(entry, idx) in group.detailEntries" :key="`${group.key}-detail-${idx}`" class="detail-group">
-                        <span v-if="entry.label" class="detail-label-chip">{{ entry.label }}</span>
-                        <template v-for="(chip, cidx) in entry.chips" :key="`${group.key}-detail-${idx}-${cidx}`">
-                          <span class="detail-chip">{{ chip }}</span>
-                          <span v-if="cidx < entry.chips.length - 1" class="detail-relation">→</span>
-                        </template>
-                      </div>
+                </div>
+                <div v-if="isExpanded(group.key, 'detail')" class="detail-popover detail-overlay">
+                  <div class="detail-groups">
+                    <div v-for="(entry, idx) in group.detailEntries.slice(1)" :key="`${group.key}-detail-${idx + 1}`" class="detail-group">
+                      <span v-if="entry.label" class="detail-label-chip">{{ entry.label }}</span>
+                      <template v-for="(chip, cidx) in entry.chips" :key="`${group.key}-detail-${idx + 1}-${cidx}`">
+                        <span class="detail-chip">{{ chip }}</span>
+                        <span v-if="cidx < entry.chips.length - 1" class="detail-relation">→</span>
+                      </template>
                     </div>
                   </div>
                 </div>
@@ -382,7 +382,7 @@ function clearRange(filter: FilterRow) { filter.dateFrom = ''; filter.dateTo = '
 function onWindowClick(ev: MouseEvent) {
   const target = ev.target as HTMLElement | null
   if (!target?.closest('.range-popover') && !target?.closest('.range-input')) openRangeFilterId.value = null
-  if (!target?.closest('.detail-anchor')) {
+  if (!target?.closest('.detail-anchor') && !target?.closest('.detail-popover')) {
     expandedRecipeKeys.value = new Set()
     expandedDetailKeys.value = new Set()
   }

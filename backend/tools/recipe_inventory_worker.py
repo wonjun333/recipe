@@ -49,7 +49,6 @@ def setup_logging(log_file: str, max_mb: int, backup: int) -> None:
 
 
 def run_one(eqp_id: str) -> dict:
-    touch_inventory_state(eqp_id, changed=False, error='')
     try:
         creds = load_eqp_ftp_credentials(eqp_id)
     except Exception as e:
