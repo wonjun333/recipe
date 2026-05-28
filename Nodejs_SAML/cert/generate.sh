@@ -4,4 +4,4 @@ openssl req -x509 -newkey rsa:4096 \
   -keyout key.pem -out cert.pem \
   -days 365 -nodes \
   -subj '/CN=localhost'
-echo "cert/key.pem, cert/cert.pem 생성 완료"
+echo "key.pem, cert.pem 생성 완료"

@@ -1,0 +1,13 @@
+doctype html
+html
+  head
+    meta(charset='utf-8')
+    title Recipe RMS
+  body
+    h2 로그인 성공
+    p 이름: #{userinfo.Username}
+    p 사번: #{userinfo.Sabun}
+    p 부서: #{userinfo.DeptName}
+    p 이메일: #{userinfo.Mail}
+    br
+    a(href='/Signout') 로그아웃

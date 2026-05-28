@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+
+var app    = require('../app');
+var fs     = require('fs');
+var path   = require('path');
+var http   = require('http');
+var https  = require('https');
+var config = require('../config');
+
+if (config.MOCK_MODE) {
+  // Mockup: HTTP로 실행 (인증서 불필요)
+  http.createServer(app).listen(config.PORT, function() {
+    console.log('[MOCK] SAML server: http://localhost:' + config.PORT + '/');
+    console.log('[MOCK] → ' + config.FRONTEND_URL + ' 로 자동 로그인됩니다.');
+  });
+
+} else {
+  // 운영: HTTPS로 실행
+  var sslOptions = {
+    key:  fs.readFileSync(path.join(__dirname, '../cert/key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, '../cert/cert.pem')),
+  };
+  https.createServer(sslOptions, app).listen(config.PORT, function() {
+    console.log('SAML server: https://localhost:' + config.PORT + '/');
+  });
+}

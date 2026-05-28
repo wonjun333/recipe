@@ -1,160 +1,166 @@
-require('dotenv').config();
+var express    = require('express');
+var fs         = require('fs');
+var path       = require('path');
+var https      = require('https');
+var http       = require('http');
+var passport   = require('passport');
+var saml       = require('passport-saml').Strategy;
+var bodyParser = require('body-parser');
+var util       = require('util');
+var jwt        = require('jsonwebtoken');
 
-const express    = require('express');
-const fs         = require('fs');
-const path       = require('path');
-const https      = require('https');
-const http       = require('http');
-const bodyParser = require('body-parser');
-const jwt        = require('jsonwebtoken');
+// Mock Mode (true: IDP 없이 자동 로그인 / false: 실제 SAML 인증)
+var MOCK_MODE = false;
 
-const MOCK_MODE         = process.env.MOCK_MODE === 'true';
-const PORT              = parseInt(process.env.PORT || '44364');
-const JWT_SECRET        = process.env.AUTH_JWT_SECRET || 'change-me-in-production';
-const JWT_EXPIRE_HOURS  = parseInt(process.env.AUTH_JWT_EXPIRE_HOURS || '8');
-const FRONTEND_URL      = process.env.SAML_REDIRECT_AFTER_LOGIN || 'http://localhost:5174/';
-const COOKIE_NAME       = 'auth_token';
-const NS                = 'http://schemas.sec.com/2018/05/identity/claims/';
-
-const MOCK_USER = {
-  loginId:   'mock_user',
-  compId:    'MOCK_COMP',
-  deptId:    'MOCK_DEPT',
-  sabun:     '000000',
-  mail:      'mock@example.com',
-  userId:    'mock001',
-  deptName:  'Dev Team',
-  grdName:   'Engineer',
-  mobile:    '',
-  username:  'Mock User',
-  surname:   'Mock',
-  givenname: 'User',
+// Mock User
+var mockUser = {
+    LoginId:   'mock_user',
+    CompId:    'MOCK_COMP',
+    DeptId:    'MOCK_DEPT',
+    Sabun:     '000000',
+    Mail:      'mock@example.com',
+    UserId:    'mock001',
+    DeptName:  'Dev Team',
+    GrdName:   'Engineer',
+    Mobile:    '',
+    Username:  'Mock User',
+    Surname:   'Mock',
+    Givenname: 'User',
 };
 
-const app = express();
-app.use(bodyParser.urlencoded({ extended: true }));
+// JWT
+var jwtSecret      = '[JWT_SECRET]';       // backend AUTH_JWT_SECRET 과 동일한 값
+var jwtExpireHours = 8;
+var cookieName     = 'auth_token';
+var frontendUrl    = '[FRONTEND_URL]';     // 로그인 후 이동할 Vue 주소
+
+// SSL Option (운영 모드에서만 사용)
+var option = MOCK_MODE ? null : {
+    key:  fs.readFileSync('cert/key.pem'),
+    cert: fs.readFileSync('cert/cert.pem')
+};
+
+var app = express();
+
+app.locals.pretty = true;
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'jade');
+app.use('/', express.static(path.join(__dirname, '/public')));
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(bodyParser.urlencoded({extended:true}));
 app.use(bodyParser.json());
 
-function createToken(user) {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: `${JWT_EXPIRE_HOURS}h` });
+// IDP Url
+// Dev
+//var idpUrl = '[DEV_IDP_URL]';
+// Ops
+var idpUrl = '[PROD_IDP_URL]';
+
+if (!MOCK_MODE) {
+    var strategy = new saml(
+        {
+            entryPoint:                   idpUrl,                          // IDP Url
+            issuer:                       '[YOUR_ENTITY_ID]',              // Entity ID
+            callbackUrl:                  '[YOUR_CALLBACK_URL]',           // ACS Url
+            // Dev
+            //cert: '[DEV_SAML_CERTIFICATE]',
+            // Ops
+            cert:                         '[PROD_SAML_CERTIFICATE]',
+            identifierFormat:             'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
+            disableRequestedAuthnContext: true,
+            signatureAlgorithm:           'sha256',
+            acceptedClockSkewMs:          -1  // SAML assertion not yet valid fix
+        },
+        function(profile, done){
+            return done(null, {
+                // Claim 설정
+                LoginId:   profile['http://schemas.sec.com/2018/05/identity/claims/LoginId'],
+                CompId:    profile['http://schemas.sec.com/2018/05/identity/claims/CompId'],
+                DeptId:    profile['http://schemas.sec.com/2018/05/identity/claims/DeptId'],
+                Sabun:     profile['http://schemas.sec.com/2018/05/identity/claims/Sabun'],
+                Mail:      profile['http://schemas.sec.com/2018/05/identity/claims/Mail'],
+                UserId:    profile['http://schemas.sec.com/2018/05/identity/claims/UserId'],
+                DeptName:  profile['http://schemas.sec.com/2018/05/identity/claims/DeptName'],
+                GrdName:   profile['http://schemas.sec.com/2018/05/identity/claims/GrdName'],
+                Mobile:    profile['http://schemas.sec.com/2018/05/identity/claims/Mobile'],
+                Username:  profile['http://schemas.sec.com/2018/05/identity/claims/Username'],
+                Surname:   profile['http://schemas.sec.com/2018/05/identity/claims/Surname'],
+                Givenname: profile['http://schemas.sec.com/2018/05/identity/claims/Givenname']
+            });
+        }
+    );
+
+    passport.use(strategy);
 }
 
-function setAuthCookie(res, token) {
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure:   !MOCK_MODE,   // HTTP 허용 (mockup), HTTPS 필수 (운영)
-    sameSite: 'lax',
-    maxAge:   JWT_EXPIRE_HOURS * 3600 * 1000,
-  });
-}
+passport.serializeUser(function(user, done){
+    console.log("Serializing user");
+    done(null, user);
+});
 
-// ── MOCK MODE ─────────────────────────────────────────────────────────────────
-if (MOCK_MODE) {
+passport.deserializeUser(function(user, done){
+    console.log("deserialize User");
+    done(null, user);
+});
 
-  app.get('/', (req, res) => {
-    const token = createToken(MOCK_USER);
-    setAuthCookie(res, token);
-    console.log(`[MOCK] auto-login as ${MOCK_USER.username} → ${FRONTEND_URL}`);
-    res.redirect(FRONTEND_URL);
-  });
-
-  app.get('/samlconsume', (req, res) => res.redirect('/'));
-  app.get('/signout',     (req, res) => {
-    res.clearCookie(COOKIE_NAME);
-    res.redirect(FRONTEND_URL);
-  });
-
-  http.createServer(app).listen(PORT, () => {
-    console.log(`[MOCK] SAML server: http://localhost:${PORT}/`);
-    console.log(`[MOCK] → ${FRONTEND_URL} 로 자동 로그인됩니다.`);
-  });
-
-// ── PRODUCTION MODE ───────────────────────────────────────────────────────────
-} else {
-  const passport      = require('passport');
-  const SamlStrategy  = require('passport-saml').Strategy;
-  const session       = require('express-session');
-
-  const IDP_URL     = process.env.SAML_IDP_URL;
-  const ENTITY_ID   = process.env.SAML_ENTITY_ID   || `https://localhost:${PORT}`;
-  const ACS_URL     = process.env.SAML_ACS_URL      || `https://localhost:${PORT}/samlconsume`;
-  const IDP_CERT    = process.env.SAML_IDP_CERT;
-  const SIGNOUT_URL = process.env.SAML_SIGNOUT_URL  || IDP_URL;
-
-  if (!IDP_URL || !IDP_CERT) {
-    console.error('ERROR: SAML_IDP_URL 과 SAML_IDP_CERT 가 .env에 설정되어야 합니다.');
-    process.exit(1);
-  }
-
-  app.use(session({
-    secret:            JWT_SECRET,
-    resave:            false,
-    saveUninitialized: false,
-  }));
-  app.use(passport.initialize());
-  app.use(passport.session());
-
-  passport.use(new SamlStrategy(
-    {
-      entryPoint:                  IDP_URL,
-      issuer:                      ENTITY_ID,
-      callbackUrl:                 ACS_URL,
-      cert:                        IDP_CERT,
-      identifierFormat:            'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
-      disableRequestedAuthnContext: true,
-      signatureAlgorithm:          'sha256',
-      acceptedClockSkewMs:         -1,
+// SSO Request
+app.get('/',
+    function(req, res, next){
+        if (MOCK_MODE) { req.user = mockUser; return next(); }
+        passport.authenticate('saml', { failureRedirect:'/', failureFlash: true })(req, res, next);
     },
-    (profile, done) => {
-      return done(null, {
-        loginId:   profile[`${NS}LoginId`]   || '',
-        compId:    profile[`${NS}CompId`]    || '',
-        deptId:    profile[`${NS}DeptId`]    || '',
-        sabun:     profile[`${NS}Sabun`]     || '',
-        mail:      profile[`${NS}Mail`]      || '',
-        userId:    profile[`${NS}UserId`]    || '',
-        deptName:  profile[`${NS}DeptName`]  || '',
-        grdName:   profile[`${NS}GrdName`]   || '',
-        mobile:    profile[`${NS}Mobile`]    || '',
-        username:  profile[`${NS}Username`]  || '',
-        surname:   profile[`${NS}Surname`]   || '',
-        givenname: profile[`${NS}Givenname`] || '',
-      });
+    function(req, res){
+        console.log("response");
+        res.redirect('/samlconsume');
     }
-  ));
+);
 
-  passport.serializeUser((user, done)   => done(null, user));
-  passport.deserializeUser((user, done) => done(null, user));
-
-  // SSO Request
-  app.get('/',
-    passport.authenticate('saml', { failureRedirect: '/', failureFlash: false }),
-    (req, res) => res.redirect('/')
-  );
-
-  // SSO Callback
-  app.post('/samlconsume',
-    passport.authenticate('saml', { failureRedirect: '/', failureFlash: false }),
-    (req, res) => {
-      const token = createToken(req.user);
-      setAuthCookie(res, token);
-      console.log(`Login: ${req.user.username} (${req.user.userId})`);
-      res.redirect(FRONTEND_URL);
+// SSO Callback
+app.post('/samlconsume',
+    function(req, res, next){
+        if (MOCK_MODE) { req.user = mockUser; return next(); }
+        passport.authenticate('saml', { failureRedirect:'/', failureFlash: true })(req, res, next);
+    },
+    function(req, res){
+        console.log("User : " + util.inspect(req.user));
+        var token = jwt.sign(req.user, jwtSecret, { expiresIn: jwtExpireHours + 'h' });
+        res.cookie(cookieName, token, {
+            httpOnly: true,
+            secure:   !MOCK_MODE,
+            sameSite: 'lax',
+            maxAge:   jwtExpireHours * 3600 * 1000
+        });
+        res.redirect(frontendUrl);
     }
-  );
+);
 
-  // Sign out
-  app.get('/signout', (req, res) => {
-    res.clearCookie(COOKIE_NAME);
-    res.redirect(`${SIGNOUT_URL}?wa=wsignoutcleanup1.0`);
-  });
+// Mock: GET /samlconsume
+if (MOCK_MODE) {
+    app.get('/samlconsume', function(req, res){
+        var token = jwt.sign(mockUser, jwtSecret, { expiresIn: jwtExpireHours + 'h' });
+        res.cookie(cookieName, token, { httpOnly:true, secure:false, sameSite:'lax', maxAge: jwtExpireHours * 3600 * 1000 });
+        console.log("[MOCK] Auto-login → " + frontendUrl);
+        res.redirect(frontendUrl);
+    });
+}
 
-  const sslOptions = {
-    key:  fs.readFileSync(path.join(__dirname, 'cert/key.pem')),
-    cert: fs.readFileSync(path.join(__dirname, 'cert/cert.pem')),
-  };
+// Sign out
+app.get('/Signout',
+    function(req, res){
+        res.clearCookie(cookieName);
+        if (MOCK_MODE) return res.redirect(frontendUrl);
+        res.redirect(idpUrl + '?wa=wsignoutcleanup1.0');
+    }
+);
 
-  https.createServer(sslOptions, app).listen(PORT, () => {
-    console.log(`SAML server: https://localhost:${PORT}/`);
-  });
+// Server
+if (MOCK_MODE) {
+    http.createServer(app).listen(44364, function(){
+        console.log("[MOCK] Server Running on port 44364...");
+    });
+} else {
+    https.createServer(option, app).listen('[PORT]', function(){
+        console.log("Server Running on port [PORT]...");
+    });
 }
