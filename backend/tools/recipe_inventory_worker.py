@@ -22,7 +22,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--log-file', default='', help='로그 파일 경로. 미지정 시 stdout만 출력')
     parser.add_argument('--log-max-mb', type=int, default=10, help='로그 파일 최대 크기(MB). 초과 시 rotate')
     parser.add_argument('--log-backup', type=int, default=3, help='보관할 rotate 파일 수')
-    parser.add_argument('--quiet', action='store_true', help='변화/에러 없는 장비는 출력 억제')
+    parser.add_argument('--quiet', action='store_true', help='전체 설비 로그 출력 시 변화/에러 없는 장비는 출력 억제')
+    parser.add_argument('--log-all-equipment', action='store_true', help='에러 없는 설비까지 설비별 처리 결과를 출력')
     parser.add_argument('--offline-cooldown-min', type=int, default=60, help='FTP 실패 설비 재시도 대기 시간(분)')
     return parser.parse_args()
 
@@ -98,7 +99,8 @@ def main() -> None:
                 try:
                     summary = fut.result()
                     changed = summary.get('changedFiles') or 0
-                    errors = len(summary.get('errors', []))
+                    summary_errors = summary.get('errors', []) or []
+                    errors = len(summary_errors)
                     last_error = str(summary.get('lastError') or '').strip()
                     if last_error:
                         errors += 1
@@ -108,7 +110,13 @@ def main() -> None:
                         failed_until.pop(eqp_id, None)
                     total_changed += changed
                     total_errors  += errors
-                    if not args.quiet or changed or errors:
+                    if errors:
+                        error_detail = last_error or '; '.join(str(x) for x in summary_errors[:3])
+                        log.warning(
+                            f'{eqp_id}: changed={changed} downloaded={summary.get("downloaded")} '
+                            f'errors={errors} error={error_detail}'
+                        )
+                    elif args.log_all_equipment and (not args.quiet or changed):
                         log.info(
                             f'{eqp_id}: changed={changed} downloaded={summary.get("downloaded")} '
                             f'errors={errors}'
