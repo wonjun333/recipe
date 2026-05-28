@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.recipe_inventory import router as recipe_inventory_router
 from app.api.routes.recipe_test_impl import router as recipe_test_router
 from app.routers.auth import router as auth_router
+from app.routers.user import router as user_router
 from app.settings import recipe_use_mock
 
 
@@ -34,10 +35,11 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(","),
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["*"],
     )
     app.include_router(auth_router)
+    app.include_router(user_router)
     app.include_router(recipe_test_router, prefix="/api")
     app.include_router(recipe_inventory_router, prefix="/api")
 

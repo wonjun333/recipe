@@ -4159,13 +4159,21 @@ async function load(keepRecipePanel:boolean){
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   try { actorName.value = window.localStorage.getItem('recipe_test_actor_name') || '' } catch {}
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('click', onGlobalClickCapture, true)
   window.addEventListener('resize', updateCartOverlayPos)
   window.addEventListener('scroll', updateCartOverlayPos, true)
-  void loadEqpOptions()
+  await loadEqpOptions()
+  try {
+    const res = await fetch('/api/user/preferences')
+    if (res.ok) {
+      const prefs = await res.json()
+      if (prefs.line) line.value = prefs.line
+      if (prefs.team) team.value = prefs.team
+    }
+  } catch {}
   resetPageToBlank()
   updateCartOverlayPos()
 })

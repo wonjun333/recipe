@@ -173,6 +173,13 @@ def _ensure_schema_sqlite(conn) -> None:
             last_changed_at TEXT,
             last_error TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            login_id TEXT PRIMARY KEY,
+            line TEXT NOT NULL DEFAULT '',
+            team TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        );
         """
     )
     existing_cols = {str(row['name']) for row in conn.execute("PRAGMA table_info(equipment_inventory)").fetchall()}
@@ -252,6 +259,14 @@ def _ensure_schema_postgres(conn) -> None:
             last_sync_at TEXT,
             last_changed_at TEXT,
             last_error TEXT
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            login_id TEXT PRIMARY KEY,
+            line TEXT NOT NULL DEFAULT '',
+            team TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
         )
         """,
     ]
@@ -756,3 +771,41 @@ def touch_inventory_state(
         finally:
             conn.close()
     return get_inventory_state(eqp_id)
+
+
+def get_user_preferences(login_id: str) -> dict:
+    ensure_schema()
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                _sql("SELECT line, team FROM user_preferences WHERE login_id = ?"),
+                (login_id,),
+            ).fetchone()
+            if row:
+                return {'line': row['line'] or '', 'team': row['team'] or ''}
+            return {'line': '', 'team': ''}
+        finally:
+            conn.close()
+
+
+def save_user_preferences(login_id: str, line: str, team: str) -> None:
+    ensure_schema()
+    ts = now_ts()
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            conn.execute(
+                _sql("""
+                INSERT INTO user_preferences (login_id, line, team, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(login_id) DO UPDATE SET
+                  line=excluded.line,
+                  team=excluded.team,
+                  updated_at=excluded.updated_at
+                """),
+                (login_id, line or '', team or '', ts),
+            )
+            conn.commit()
+        finally:
+            conn.close()
