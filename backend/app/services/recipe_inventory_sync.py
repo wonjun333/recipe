@@ -36,6 +36,45 @@ _LIVE_PATH_CACHE_TTL_SEC = 3.0
 _LIVE_PATH_CACHE: dict[tuple[str, str, str], tuple[float, list[dict[str, str]]]] = {}  
 
 
+def _source_path_key(source_path: str) -> str:
+    return str(source_path or '').replace('\\', '/').strip().rstrip('/').lower()
+
+
+def _monitored_source_groups() -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for source_kind, cfg in MONITORED_SOURCE_CONFIG.items():
+        source_path = str(cfg['path'])
+        key = _source_path_key(source_path)
+        group = groups.setdefault(
+            key,
+            {
+                'path': source_path,
+                'exts': [],
+                'sourceKinds': [],
+                'sourceKindByExt': {},
+            },
+        )
+        group['sourceKinds'].append(source_kind)
+        for raw_ext in list(cfg.get('exts') or []):
+            ext = str(raw_ext or '').lower()
+            if not ext:
+                continue
+            if ext not in group['exts']:
+                group['exts'].append(ext)
+            group['sourceKindByExt'].setdefault(ext, source_kind)
+    return list(groups.values())
+
+
+def _source_kind_for_entry(group: dict[str, Any], name: str) -> str:
+    low_name = str(name or '').lower()
+    source_kind_by_ext = dict(group.get('sourceKindByExt') or {})
+    for ext in sorted(source_kind_by_ext.keys(), key=len, reverse=True):
+        if low_name.endswith(ext):
+            return str(source_kind_by_ext[ext])
+    source_kinds = list(group.get('sourceKinds') or [])
+    return str(source_kinds[0]) if source_kinds else 'recipe'
+
+
 def _normalize_cfg_lines(text: str) -> list[str]:  
     return str(text or '').replace('\r\n', '\n').replace('\r', '\n').split('\n')  
 
@@ -273,9 +312,10 @@ def sync_equipment_inventory_once(eqp_id: str, ftp_ip: str, ftp_id: str, ftp_pw:
     all_payload: list[list[Any]] = []  
     had_change = False  
     last_error = ''  
-    for source_kind, cfg in MONITORED_SOURCE_CONFIG.items():  
-        source_path = str(cfg['path'])  
-        exts = list(cfg['exts'])  
+    for group in _monitored_source_groups():
+        source_path = str(group['path'])
+        exts = list(group['exts'])
+        source_kind = str((group.get('sourceKinds') or ['recipe'])[0])
         protected_lookup = _protected_lookup_factory(eqp_id, source_path, source_kind)  
         try:  
             live_entries = filter_entries_by_exts(_list_live_entries_cached(ftp_ip, ftp_id, ftp_pw, source_path), exts)  
@@ -299,6 +339,7 @@ def sync_equipment_inventory_once(eqp_id: str, ftp_ip: str, ftp_id: str, ftp_pw:
                 modified_at = str(entry.get('modifiedAt') or '')  
                 size = str(entry.get('size') or '')  
                 ext = str(entry.get('ext') or '')  
+                entry_source_kind = _source_kind_for_entry(group, name)
                 all_payload.append([eqp_id, source_path, name, modified_at, size, ext])  
                 prev = before_map.get(name)  
                 if prev != (modified_at, size, True):  
@@ -310,14 +351,18 @@ def sync_equipment_inventory_once(eqp_id: str, ftp_ip: str, ftp_id: str, ftp_pw:
                         ftp_id,  
                         ftp_pw,  
                         source_path,  
-                        source_kind,  
+                        entry_source_kind,
                         name,  
                         modified_at,  
                         size,  
                     )  
         except Exception as exc:  
             last_error = str(exc)  
-            mark_inventory_failure(eqp_id, source_path, 'inventory', last_error)  
+            try:
+                mark_inventory_failure(eqp_id, source_path, 'inventory', last_error)
+            except Exception:
+                pass
+            break
     snapshot_hash = _build_inventory_hash(all_payload)  
     touch_inventory_state(  
         eqp_id,  

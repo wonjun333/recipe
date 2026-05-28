@@ -104,7 +104,10 @@ def main() -> None:
                     last_error = str(summary.get('lastError') or '').strip()
                     if last_error:
                         errors += 1
-                    failed_until.pop(eqp_id, None)
+                    if errors and cooldown_sec > 0:
+                        failed_until[eqp_id] = time.monotonic() + cooldown_sec
+                    else:
+                        failed_until.pop(eqp_id, None)
                     total_changed += changed
                     total_errors  += errors
                     if errors:
