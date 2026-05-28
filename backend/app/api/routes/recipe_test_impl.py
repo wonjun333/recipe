@@ -36,7 +36,6 @@ from app.services.history_comment_store import get_all_comments, set_comment as 
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
 from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
 from app.services.recipe_vm_store import read_vm_file_bytes as read_vm_recipe_bytes
-from app.services.cloud_protected_registry import load_cloud_protected_recipe_names
 
 router = APIRouter(prefix="/recipe-test", tags=["recipe-test"])
 
@@ -1932,28 +1931,11 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
                 return result
             raise HTTPException(status_code=400, detail=str(e))
 
-    # For all other sourceKinds: merge FTP (live) + DB cache + VM store + CSV phantoms
+    # For all other sourceKinds: merge FTP (live) + DB cache + VM store
     source_path = str(config['path'])
     exts = list(config.get('exts', []))
-    exts_lower = {e.lower() for e in exts}
 
     merged = list_cached_or_live_entries_for_source(eqpId, source_path, exts, ftp_ip, ftp_id, ftp_pw)
-    existing_lower = {str(x.get('name') or '').lower() for x in merged}
-
-    cloud_names = load_cloud_protected_recipe_names()
-    for cloud_name in cloud_names:
-        if cloud_name.lower() in existing_lower:
-            continue
-        file_ext = ('.' + cloud_name.split('.')[-1].lower()) if '.' in cloud_name else ''
-        if exts_lower and file_ext not in exts_lower:
-            continue
-        merged.append({
-            'name': cloud_name,
-            'ext': file_ext,
-            'modifiedAt': '',
-            'livePresent': False,
-            'cloudProtected': True,
-        })
 
     items = [
         {
