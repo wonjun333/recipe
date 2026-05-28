@@ -13,6 +13,12 @@ from app.services.auth_service import (
 
 router = APIRouter(prefix='/api/auth', tags=['auth'])
 
+
+@router.get('/config')
+def get_config():
+    """인증 없이 호출 가능한 모드 정보 (프론트엔드 초기화용)."""
+    return {'mockMode': MOCK_MODE}
+
 _MOCK_USER = {
     'loginId': 'mock_user',
     'userId': 'mock001',

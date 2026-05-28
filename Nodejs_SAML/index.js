@@ -29,10 +29,11 @@ var mockUser = {
 };
 
 // JWT
-var jwtSecret      = '[JWT_SECRET]';       // backend AUTH_JWT_SECRET 과 동일한 값
+var jwtSecret      = 'change-me-please';   // backend AUTH_JWT_SECRET 과 반드시 동일한 값
 var jwtExpireHours = 8;
 var cookieName     = 'auth_token';
-var frontendUrl    = '[FRONTEND_URL]';     // 로그인 후 이동할 Vue 주소
+var frontendUrl    = 'http://10.173.131.184:8282/';  // 로그인 후 이동할 Vue 주소
+var cookieSecure   = false;                // HTTP 환경이면 false, HTTPS 환경이면 true
 
 // SSL Option (운영 모드에서만 사용)
 var option = MOCK_MODE ? null : {
@@ -127,7 +128,7 @@ app.post('/samlconsume',
         var token = jwt.sign(req.user, jwtSecret, { expiresIn: jwtExpireHours + 'h' });
         res.cookie(cookieName, token, {
             httpOnly: true,
-            secure:   !MOCK_MODE,
+            secure:   cookieSecure,
             sameSite: 'lax',
             maxAge:   jwtExpireHours * 3600 * 1000
         });
