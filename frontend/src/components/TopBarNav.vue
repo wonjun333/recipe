@@ -9,8 +9,13 @@
 
     <nav class="nav-right">
       <RouterLink to="/history" class="nav-item">My History</RouterLink>
-      <span v-if="user" class="user-badge">{{ user.username || user.userId }}</span>
-      <a href="/api/auth/logout" class="nav-item logout">로그아웃</a>
+
+      <div v-if="user" class="user-info">
+        <span class="user-name">{{ user.username }}</span>
+        <span class="user-login-id">{{ user.loginId }}</span>
+      </div>
+
+      <a href="/Signout" class="nav-item logout">로그아웃</a>
     </nav>
   </header>
 </template>
@@ -20,6 +25,7 @@ import { RouterLink } from 'vue-router'
 
 interface AuthUser {
   username: string
+  loginId: string
   userId: string
   deptName: string
   [key: string]: string
@@ -77,16 +83,29 @@ defineProps<{ user: AuthUser | null }>()
   background: #007acc;
   color: #fff;
 }
-.user-badge {
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  padding: 0 8px;
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 0 10px;
+  line-height: 1.3;
+}
+.user-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+}
+.user-login-id {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
   white-space: nowrap;
 }
 .logout {
   text-decoration: none;
   cursor: pointer;
   color: #64748b;
+  font-size: 12px;
 }
 </style>

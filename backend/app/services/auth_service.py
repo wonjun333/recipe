@@ -113,8 +113,18 @@ def create_jwt(user: dict) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
 
+def _normalize_user(payload: dict) -> dict:
+    """Node.js JWT(대문자 키) → 소문자 camelCase 정규화."""
+    result = {}
+    for k, v in payload.items():
+        if k == 'exp':
+            continue
+        normalized = k[0].lower() + k[1:] if k[0].isupper() else k
+        result[normalized] = v
+    return result
+
+
 def verify_jwt(token: str) -> dict:
     import jwt
     payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-    payload.pop('exp', None)
-    return payload
+    return _normalize_user(payload)
