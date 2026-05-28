@@ -10,7 +10,7 @@ var util       = require('util');
 var jwt        = require('jsonwebtoken');
 
 // Mock Mode (true: IDP 없이 자동 로그인 / false: 실제 SAML 인증)
-var MOCK_MODE = false;
+var MOCK_MODE = true;
 
 // Mock User
 var mockUser = {

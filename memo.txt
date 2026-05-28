@@ -3,6 +3,7 @@ claude --dangerously-skip-permissions -r
 
 cd /home/dev/project/recipe/backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+lsof -ti :8000 |xargs -r kill -9
 
 cd /home/dev/project/recipe/frontend
 npm run build && npm run preview
