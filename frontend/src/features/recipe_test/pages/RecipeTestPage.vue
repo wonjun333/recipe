@@ -708,6 +708,7 @@ const recipesData = ref<RecipeDetail[]>([])
 const jobParsedMap = reactive<Record<string, JobParsed>>({})
 const recipeSourceCache = reactive<Record<string, RecipeDetail[]>>({})
 const recipeSourceTitleMap = reactive<Record<string, string>>({ recipe: 'Recipe' })
+const snapshotCachedKinds = new Set<string>()
 const activeRecipeSourceKind = ref<RecipeSourceKind>(DEFAULT_RECIPE_SOURCE)
 const inventorySnapshotHash = ref('')
 let inventorySnapshotTimer: number | null = null
@@ -1340,7 +1341,9 @@ async function primeRecipeSourceCache(sourceKind: RecipeSourceKind) {
     if (!recipeSourceCache.recipe?.length) recipeSourceCache.recipe = [...recipesData.value]
     return
   }
-  if (recipeSourceCache[sourceKind]?.length) return
+  // If cache was populated from snapshot (DB-only), force API call once to get FTP+DB merged data
+  if (recipeSourceCache[sourceKind]?.length && !snapshotCachedKinds.has(sourceKind)) return
+  snapshotCachedKinds.delete(sourceKind)
   try {
     const res = await recipeTestApi.getRecipeSourceList(eqpId.value, sourceKind)
     recipeSourceTitleMap[sourceKind] = res.titleBase
@@ -4036,6 +4039,8 @@ function applyInventoryRecipeSnapshot(snapshot: any) {
   Object.entries(nextSourceCache).forEach(([k, v]) => {
     if (v.length === 0 && (recipeSourceCache[k]?.length ?? 0) > 0) return
     recipeSourceCache[k] = v
+    // Non-recipe kinds populated from snapshot (DB-only): mark for API refresh in primeRecipeSourceCache
+    if (k !== 'recipe' && v.length > 0) snapshotCachedKinds.add(k)
   })
 
   if (activeRecipeSourceKind.value === 'recipe') {
@@ -4132,6 +4137,7 @@ async function load(keepRecipePanel:boolean){
     clearObject(jobParsedMap)
     clearObject(recipeSourceCache)
     clearObject(recipeSourceTitleMap)
+    snapshotCachedKinds.clear()
     recipeSourceCache.recipe = [...baseRecipes]
     recipeSourceTitleMap.recipe = 'Recipe'
     activeRecipeSourceKind.value = 'recipe'
