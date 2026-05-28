@@ -44,6 +44,17 @@ ftp의 모든 설비를 파싱하고있어. 그런데도 문제점은 보안 영
 파일을 통해서 .pol과 .con 확장자의 파일을 decode하여 웹으로 보여주고 있는데,
 이걸 역으로 보여진 웹에서 사용자가 특정 값들을 수정하면 그걸 encode해서 하나의 파일로 만들수 있을까?
 
+job content에서 빨간 음영 표시하는 법칙도 바꿨어? 지금 설비에 recipe가 있음에도 불구하고 모든 .pol unit recipe가 빨간 상태로 보여지는 문제가 있어.
+내가 원했던 거는 기본적으로 recipe가 설비에 있으면 decode해서 보여지고, 
+그 뒷단에서 다른 백엔드(PYTHONPATH= python tools/recipe_inventory_worker.py --inverval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log0max-mb 10 --log-backup 3)에서 cloud_protected_files.csv 목록에 있으면
+해당 파일들을 저장하거나 따로 캐시화 했다가,
+사용자가 조회를 한다면, 설비에 있는 recipe(실시간 파싱) + 보안영역을 받는 recipe 가 설비에 존재하는것 처럼 보여주는게 목적이야.
+그를 위해서는 뒷단에서 파일 저장하는 방식은 설비별로, recipe 내용을 저장해야하고, 그걸 보여줄때도 설비별로 보여줘야해. (사용자는 설비별로 조회하기때문)
+참고로 cloud_protected_files.csv 파일은 매일 오전 6시에 업데이트 되기때문에, 내가 따로 보안 파일들을 저장하는 곳에서도, cloud_protected_files.csv 목록에서도 없어지고 + 설비에서도 없다면 해당파일은 db에서 삭제되도록 관리되어야해.
+
+위의 내용을 하기위해서 먼저, 이전 git 버전으로 돌려주고 그이후에 다시 작업을 진행해줘. 혹시 모르는게 있으면 나한테 물어보고.
+
+
 
 
 

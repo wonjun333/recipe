@@ -36,6 +36,7 @@ from app.services.history_comment_store import get_all_comments, set_comment as 
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
 from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
 from app.services.recipe_vm_store import read_vm_file_bytes as read_vm_recipe_bytes
+from app.services.cloud_protected_registry import load_cloud_protected_recipe_names
 
 router = APIRouter(prefix="/recipe-test", tags=["recipe-test"])
 
@@ -743,52 +744,41 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
             recipe.setdefault('modifiedAt', modified_at)
             preview['recipe'] = recipe
             return preview
-
-        # FTP unavailable and no stored preview — try to build from cached raw bytes
-        cached_mod = str((cached or {}).get('modifiedAt') or modified_at)
-        raw_bytes = (
-            get_latest_version_bytes(eqp_id, path, recipe_name)
-            or read_vm_recipe_bytes(eqp_id, path, recipe_name)
-        )
-        if raw_bytes:
+        # Stored preview is NULL – retry from raw bytes
+        raw = get_latest_version_bytes(eqp_id, path, recipe_name) or read_vm_recipe_bytes(eqp_id, path, recipe_name)
+        if raw:
             preview_context = {'eqpId': eqp_id}
-            if recipe_name.lower().endswith(('.pol', '.con')):
+            if recipe_name.lower().endswith('.pol') or recipe_name.lower().endswith('.con'):
                 try:
                     preview_context['slurryConfig'] = load_pol_system_cfg(eqp_id)
                 except Exception:
                     pass
-            preview = build_recipe_preview_from_bytes(recipe_id, recipe_name, cached_mod, source_kind, raw_bytes, preview_context)
+            preview = build_recipe_preview_from_bytes(recipe_id, recipe_name, modified_at, source_kind, raw, preview_context)
             if preview:
                 return preview
+            if source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
+                for enc in ('utf-8', 'cp949', 'euc-kr', 'latin1'):
+                    try:
+                        recipe_text = raw.decode(enc)
+                        preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
+                        if preview:
+                            return preview
+                        break
+                    except Exception:
+                        continue
 
     if source_kind in {'isrmAlgorithm', 'rtpcRecipe'} or recipe_name.lower().endswith(('.alg', '.seg', '.scx')):
         return create_no_preview_recipe(recipe_id, recipe_name, modified_at, source_kind)
 
-    try:
-        if not ftp_failed and source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
-            recipe_text = svc_ftp_read_text_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
-            preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
-            if preview:
-                return preview
-    except Exception:
-        pass
-
-    # FTP unavailable for text-based cleaners — try cached bytes as text
-    if ftp_failed and source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
-        raw_bytes = (
-            get_latest_version_bytes(eqp_id, path, recipe_name)
-            or read_vm_recipe_bytes(eqp_id, path, recipe_name)
-        )
-        if raw_bytes:
-            for enc in ('utf-8', 'cp949', 'latin1'):
-                try:
-                    recipe_text = raw_bytes.decode(enc)
-                    preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
-                    if preview:
-                        return preview
-                    break
-                except Exception:
-                    continue
+    if not ftp_failed:
+        try:
+            if source_kind in {'megasonics', 'brush1', 'brush2', 'vaporDryer'}:
+                recipe_text = svc_ftp_read_text_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
+                preview = build_source_recipe_preview(recipe_id, recipe_name, modified_at, source_kind, recipe_text)
+                if preview:
+                    return preview
+        except Exception:
+            pass
 
     return {
         "recipe": {
@@ -1902,43 +1892,90 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
     if sourceKind not in RECIPE_SOURCE_CONFIG:
         raise HTTPException(status_code=400, detail=f"지원하지 않는 sourceKind: {sourceKind}")
 
+    config = RECIPE_SOURCE_CONFIG[sourceKind]
     ftp_ip, ftp_id, ftp_pw = load_eqp_ip(eqpId)
 
-    try:
-        source = get_entries_from_source_path(ftp_ip, ftp_id, ftp_pw, sourceKind)
-        result = {
-            "sourceKind": sourceKind,
-            "titleBase": source["titleBase"],
-            "path": source["path"],
-            "exts": source["exts"],
-            "readError": '',
-            "items": [
-                {
-                    "id": make_source_recipe_id(sourceKind, x["name"]),
-                    "name": x["name"],
-                    "modifiedAt": x.get("modifiedAt", ""),
-                    "sourceKind": sourceKind,
-                    "ext": next((ext for ext in source["exts"] if str(x["name"]).lower().endswith(ext.lower())), ""),
-                }
-                for x in source["items"]
-            ],
-        }
-        RECIPE_SOURCE_CACHE[cache_key] = result
-        return result
-    except Exception as e:
-        if sourceKind == 'metrologyRecipe':
-            config = RECIPE_SOURCE_CONFIG[sourceKind]
+    # metrologyRecipe and MOCK_MODE use the FTP-only path
+    if MOCK_MODE or sourceKind == 'metrologyRecipe':
+        try:
+            source = get_entries_from_source_path(ftp_ip, ftp_id, ftp_pw, sourceKind)
             result = {
-                'sourceKind': sourceKind,
-                'titleBase': config['titleBase'],
-                'path': config['path'],
-                'exts': list(config.get('exts', [])),
-                'readError': str(e),
-                'items': [],
+                "sourceKind": sourceKind,
+                "titleBase": source["titleBase"],
+                "path": source["path"],
+                "exts": source["exts"],
+                "readError": '',
+                "items": [
+                    {
+                        "id": make_source_recipe_id(sourceKind, x["name"]),
+                        "name": x["name"],
+                        "modifiedAt": x.get("modifiedAt", ""),
+                        "sourceKind": sourceKind,
+                        "ext": next((ext for ext in source["exts"] if str(x["name"]).lower().endswith(ext.lower())), ""),
+                    }
+                    for x in source["items"]
+                ],
             }
             RECIPE_SOURCE_CACHE[cache_key] = result
             return result
-        raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            if sourceKind == 'metrologyRecipe':
+                result = {
+                    'sourceKind': sourceKind,
+                    'titleBase': config['titleBase'],
+                    'path': config['path'],
+                    'exts': list(config.get('exts', [])),
+                    'readError': str(e),
+                    'items': [],
+                }
+                RECIPE_SOURCE_CACHE[cache_key] = result
+                return result
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # For all other sourceKinds: merge FTP (live) + DB cache + VM store + CSV phantoms
+    source_path = str(config['path'])
+    exts = list(config.get('exts', []))
+    exts_lower = {e.lower() for e in exts}
+
+    merged = list_cached_or_live_entries_for_source(eqpId, source_path, exts, ftp_ip, ftp_id, ftp_pw)
+    existing_lower = {str(x.get('name') or '').lower() for x in merged}
+
+    cloud_names = load_cloud_protected_recipe_names()
+    for cloud_name in cloud_names:
+        if cloud_name.lower() in existing_lower:
+            continue
+        file_ext = ('.' + cloud_name.split('.')[-1].lower()) if '.' in cloud_name else ''
+        if exts_lower and file_ext not in exts_lower:
+            continue
+        merged.append({
+            'name': cloud_name,
+            'ext': file_ext,
+            'modifiedAt': '',
+            'livePresent': False,
+            'cloudProtected': True,
+        })
+
+    items = [
+        {
+            "id": make_source_recipe_id(sourceKind, x["name"]),
+            "name": x["name"],
+            "modifiedAt": x.get("modifiedAt", ""),
+            "sourceKind": sourceKind,
+            "ext": str(x.get("ext") or ""),
+        }
+        for x in merged
+        if str(x.get("name") or "").strip()
+    ]
+    result = {
+        "sourceKind": sourceKind,
+        "titleBase": str(config.get('titleBase', '')),
+        "path": source_path,
+        "exts": exts,
+        "readError": '',
+        "items": items,
+    }
+    RECIPE_SOURCE_CACHE[cache_key] = result
+    return result
 
 
 @router.get("/recipe-content")

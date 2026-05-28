@@ -4,7 +4,6 @@ import csv
 from pathlib import Path
 
 _DEFAULT_PATH = Path(__file__).resolve().parents[1] / 'data' / 'cloud_protected_files.csv'
-# Cache stores (mtime, lowercase_ids_set, original_names_set)
 _CACHE: tuple[float | None, set[str], set[str]] | None = None
 
 

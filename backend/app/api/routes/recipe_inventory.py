@@ -54,7 +54,6 @@ def _build_snapshot(eqp_id: str) -> dict:
             items.append(item)
             union.append(item)
 
-        # Inject cloud-protected files from CSV that haven't been captured yet
         exts_lower = {str(e).lower() for e in cfg['exts']}
         for cloud_name in cloud_names:
             if cloud_name.lower() in existing_lower:
@@ -76,11 +75,11 @@ def _build_snapshot(eqp_id: str) -> dict:
 
         items.sort(key=lambda x: x['name'].lower())
         source_lists[source_kind] = items
-    # de-duplicate union by sourceKind+name
+
     uniq = {(x['sourceKind'], x['name']): x for x in union}
     union_items = sorted(uniq.values(), key=lambda x: (x['sourceKind'], x['name'].lower()))
     hash_payload = [
-        [it['sourceKind'], it['name'], it.get('modifiedAt',''), it.get('ext',''), 1 if it.get('livePresent') else 0]
+        [it['sourceKind'], it['name'], it.get('modifiedAt', ''), it.get('ext', ''), 1 if it.get('livePresent') else 0]
         for it in union_items
     ]
     snapshot_hash = hashlib.sha1(json.dumps(hash_payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest() if hash_payload else ''

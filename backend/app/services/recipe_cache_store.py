@@ -189,14 +189,26 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
         for row in stale_rows:
             name = str(row['name'])
             if name not in current_names:
-                protected = bool(int(row['cloud_protected'] or 0)) or bool(protected_lookup(name) if callable(protected_lookup) else False)
-                retain_cached = 1 if protected else int(row['retain_cached'] or 0)
-                if not protected:
-                    retain_cached = 0
-                conn.execute(
-                    'UPDATE equipment_inventory SET live_present=0, last_seen_at=?, deleted_at=COALESCE(deleted_at, ?), cloud_protected=?, retain_cached=? WHERE eqp_id=? AND source_path=? AND name=?',
-                    (seen_at, seen_at, 1 if protected else 0, int(retain_cached), eqp_id, norm_source, name),
-                )
+                prev_was_cloud = bool(int(row['cloud_protected'] or 0))
+                protected = prev_was_cloud and bool(protected_lookup(name) if callable(protected_lookup) else prev_was_cloud)
+                if prev_was_cloud and not protected:
+                    # Was cloud-protected but removed from CSV and not on FTP → delete
+                    conn.execute(
+                        'DELETE FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?',
+                        (eqp_id, norm_source, name),
+                    )
+                    conn.execute(
+                        'DELETE FROM file_versions WHERE eqp_id=? AND source_path=? AND name=?',
+                        (eqp_id, norm_source, name),
+                    )
+                else:
+                    retain_cached = 1 if protected else int(row['retain_cached'] or 0)
+                    if not protected:
+                        retain_cached = 0
+                    conn.execute(
+                        'UPDATE equipment_inventory SET live_present=0, last_seen_at=?, deleted_at=COALESCE(deleted_at, ?), cloud_protected=?, retain_cached=? WHERE eqp_id=? AND source_path=? AND name=?',
+                        (seen_at, seen_at, 1 if protected else 0, int(retain_cached), eqp_id, norm_source, name),
+                    )
         conn.commit()
     finally:
         conn.close()
