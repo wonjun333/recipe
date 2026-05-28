@@ -29,44 +29,21 @@ npm run build && npm run preview
 })();
 
 
-현재 내가 배포할 사내 환경은 보안으로 인해서 unit recipe들이 (.pol .con .drpr .br .meg)
-사내 클라우드에 있다가 특정 시점에 설비로 다운로드 받아지고 있어.
-그래서 설비의 실시간 파싱을 하면은 클라우드에 업로드된 recipe들은 안보이기 마련이야
-나는 이를 방지하고자, 클라우드에서 설비로 다운로드 되는 recipe들을 포착하고 그것들을 따로 저장한 뒤에
-설비에서 안보이면 나만의 db 혹은 cache를 통해서 웹에 보여졌으면 좋겠어.
-그렇게 uploade 되는 recipe 목록은 ./backend/app/RMS/cloud_protected_files.csv 에있고
-해당 파일은 rcp_id라는 컬럼에 목록들이 저장되어있어.
-나는 이러한거를 지속적으로 파싱하기 위해 PYTHONPATH= python tools/recipe_inventory_worker.py --inverval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log0max-mb 10 --log-backup 3 라는 명령어를 통해
-ftp의 모든 설비를 파싱하고있어. 그런데도 문제점은 보안 영향을 받는 파일들이 웹상에 안보이거나(빨간음영으로 표시되거나), 존재한다고 누르면 placeholder만 보여지고있어.
-해당원인을 찾아주고 고쳐줘. 
+(.pol .con .drpr .br .meg)
+./backend/app/RMS/cloud_protected_files.csv
+PYTHONPATH= python tools/recipe_inventory_worker.py --interval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3 라는 명령어를 통해
+
 
 /home/dev/project/recipe/backend/app/services/pol_con_decoder.py
 파일을 통해서 .pol과 .con 확장자의 파일을 decode하여 웹으로 보여주고 있는데,
 이걸 역으로 보여진 웹에서 사용자가 특정 값들을 수정하면 그걸 encode해서 하나의 파일로 만들수 있을까?
 
-job content에서 빨간 음영 표시하는 법칙도 바꿨어? 지금 설비에 recipe가 있음에도 불구하고 모든 .pol unit recipe가 빨간 상태로 보여지는 문제가 있어.
-내가 원했던 거는 기본적으로 recipe가 설비에 있으면 decode해서 보여지고, 
-그 뒷단에서 다른 백엔드(PYTHONPATH= python tools/recipe_inventory_worker.py --inverval-sec 10 --concurrency 10 --quiet --log-file logs/inventory.log --log0max-mb 10 --log-backup 3)에서 cloud_protected_files.csv 목록에 있으면
-해당 파일들을 저장하거나 따로 캐시화 했다가,
-사용자가 조회를 한다면, 설비에 있는 recipe(실시간 파싱) + 보안영역을 받는 recipe 가 설비에 존재하는것 처럼 보여주는게 목적이야.
-그를 위해서는 뒷단에서 파일 저장하는 방식은 설비별로, recipe 내용을 저장해야하고, 그걸 보여줄때도 설비별로 보여줘야해. (사용자는 설비별로 조회하기때문)
-참고로 cloud_protected_files.csv 파일은 매일 오전 6시에 업데이트 되기때문에, 내가 따로 보안 파일들을 저장하는 곳에서도, cloud_protected_files.csv 목록에서도 없어지고 + 설비에서도 없다면 해당파일은 db에서 삭제되도록 관리되어야해.
+SOURCE_CONFIG
 
-위의 내용을 하기위해서 먼저, 이전 git 버전으로 돌려주고 그이후에 다시 작업을 진행해줘. 혹시 모르는게 있으면 나한테 물어보고.
 
-수정해준게 마음에 들지않아. 빨간 음영에 대한 규칙과 이외에 개발에 필요한 방향을 설명해줄게.
-[Recipe List에 보여질 unit Recipe List에 대한 규칙]
-워커가 조회한 설비에 SOURCE_CONFIG에 해당하는 경로에 파일 있다면 LIST에 보여준다.
-경로에 파일이 없다면, cloud_protected_files.csv 에 해당되어 캐시 또는 따로 recipe를 저장한 db에서 보여지도록 list에도 보여진다.
-
-[Recipe Content에서 보여줄 규칙]
-설비에 파일이 존재한다면 실시간으로 decode 해서 보여주고, 존재하징낳는데 cloud_protected_files.csv 에 해당한다면
-cache 또는 db에서 decode해서 보여준다.
-
-[빨간 음영 규칙]
-워커가 조회한 설비에서 job content가 보여질때 각 cell을 파싱하는 경로(SOURCE_CONFIG)에 없는 파일은 빨간 음영으로 표시
-단, 현재 설비에 존재하지않더라도 캐시 또는 db에 저장되어있다면 빨갛게 표시하지 않는다.
-
+curl "http://localhost:8000/recipe-inventory/latest-version?eqpId=<설비ID>&sourcePath=\\CMPDB\\Lcmp\\Recipes&name=<파일명>"
+명령어를 통해서 특정 설비에 cloud_protected에 해당되는 파일을 cloud 에서 다운로드하여 확인했는데, {"detail":"Not Found"}로 확인되었어.
+심지어 다운로드하면 현재 설비ftp에 존재함에도 불구하고 웹에는 보이지 않았어. 이유가 뭘지 분석해줘.
 
 
 왜 내가 빌드해서 만든 웹에는 "안전하지 않음" 이라는 문제가 뜨는지 모르겠어.

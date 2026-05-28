@@ -80,7 +80,7 @@ def _parse_pol_system_cfg(cfg_text: str) -> dict[str, Any]:
 
 
 def connect_ftp(ftp_ip: str, ftp_id: str, ftp_pw: str) -> ftplib.FTP:  
-    ftp = ftplib.FTP(timeout=12)  
+    ftp = ftplib.FTP(timeout=3)
     ftp.connect(ftp_ip, 21)  
     ftp.login(user=ftp_id, passwd=ftp_pw)  
     return ftp  
