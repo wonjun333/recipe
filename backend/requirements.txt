@@ -8,3 +8,5 @@ cachetools
 python-dotenv
 httpx
 pytest
+python3-saml
+PyJWT

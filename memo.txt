@@ -7,6 +7,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 cd /home/dev/project/recipe/frontend
 npm run build && npm run preview
 
+cd /home/dev/project/recipe/backend
+PYTHONPATH= python tools/recipe_inventory_worker.py --offline-cooldown-min 60 --concurrency 20 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3
 
 
 (function() {
@@ -31,6 +33,7 @@ npm run build && npm run preview
 
 (.pol .con .drpr .br .meg)
 ./backend/app/RMS/cloud_protected_files.csv
+cd /home/dev/project/recipe/backend
 PYTHONPATH= python tools/recipe_inventory_worker.py --offline-cooldown-min 60 --concurrency 20 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3
 
 

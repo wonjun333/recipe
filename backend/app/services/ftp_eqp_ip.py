@@ -1,25 +1,24 @@
 from __future__ import annotations
 
-from pymongo import MongoClient
-from sqlalchemy import create_engine, text
-
 from app.config import MOCK_MODE, MONGO_URL, POSTGRES_URL
 from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_CREDS
 
 _pg_engine = None
-_mongo_client: MongoClient | None = None
+_mongo_client = None
 
 
 def _get_pg_engine():
     global _pg_engine
     if _pg_engine is None:
+        from sqlalchemy import create_engine
         _pg_engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     return _pg_engine
 
 
-def _get_mongo_client() -> MongoClient:
+def _get_mongo_client():
     global _mongo_client
     if _mongo_client is None:
+        from pymongo import MongoClient
         _mongo_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000)
     return _mongo_client
 

@@ -45,7 +45,7 @@ def _connect():
     if _USE_POSTGRES:
         import psycopg
         from psycopg.rows import dict_row
-        conn = psycopg.connect(_RECIPE_CACHE_DB_URL, row_factory=dict_row)
+        conn = psycopg.connect(_RECIPE_CACHE_DB_URL, row_factory=dict_row, connect_timeout=10)
         conn.autocommit = False
         return conn
     conn = sqlite3.connect(str(db_path()), timeout=_SQLITE_TIMEOUT_SEC)
