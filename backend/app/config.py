@@ -11,6 +11,7 @@ POSTGRES_URL: str = os.getenv('POSTGRES_URL', '')
 MONGO_URL: str = os.getenv('MONGO_URL', '')
 RECIPE_DATA_DIR: str = os.getenv('RECIPE_DATA_DIR', '')
 MOCK_MODE: bool = os.getenv('MOCK_MODE', 'false').lower() in ('1', 'true', 'yes')
+JWT_CERT_PATH: str = os.getenv('JWT_CERT_PATH', '../Nodejs_SAML/cert/cert.pem')
 
 if not MOCK_MODE:
     _missing = [k for k, v in [('POSTGRES_URL', POSTGRES_URL), ('MONGO_URL', MONGO_URL)] if not v]

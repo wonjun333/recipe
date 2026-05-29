@@ -19,15 +19,15 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
 interface AuthUser {
-  loginId: string
-  username: string
+  LoginId: string
+  Username: string
   [key: string]: string
 }
 
 const props = defineProps<{ user: AuthUser | null }>()
 
 const avatarLetter = computed(() => {
-  const id = props.user?.loginId ?? ''
+  const id = props.user?.LoginId ?? ''
   return id ? id[0].toUpperCase() : '?'
 })
 </script>

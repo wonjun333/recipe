@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.recipe_inventory import router as recipe_inventory_router
 from app.api.routes.recipe_test_impl import router as recipe_test_router
+from app.routers.auth import router as auth_router
 from app.routers.ebara import router as ebara_router
 from app.settings import recipe_use_mock
 
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT"],
         allow_headers=["*"],
     )
+    app.include_router(auth_router)
     app.include_router(ebara_router)
     app.include_router(recipe_test_router, prefix="/api")
     app.include_router(recipe_inventory_router, prefix="/api")
