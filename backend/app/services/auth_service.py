@@ -18,6 +18,7 @@ SAML_SIGNOUT_URL: str = os.environ.get('SAML_SIGNOUT_URL', SAML_IDP_URL)
 SAML_REDIRECT_AFTER_LOGIN: str = os.environ.get('SAML_REDIRECT_AFTER_LOGIN', '/')
 
 JWT_SECRET: str = os.environ.get('AUTH_JWT_SECRET', 'change-me-in-production')
+JWT_PUBLIC_CERT_PATH: str = os.environ.get('JWT_PUBLIC_CERT_PATH', '')
 JWT_EXPIRE_HOURS: int = int(os.environ.get('AUTH_JWT_EXPIRE_HOURS', '8'))
 COOKIE_NAME = 'auth_token'
 COOKIE_SECURE: bool = os.environ.get('AUTH_COOKIE_SECURE', 'false').lower() == 'true'
@@ -126,5 +127,9 @@ def _normalize_user(payload: dict) -> dict:
 
 def verify_jwt(token: str) -> dict:
     import jwt
-    payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+    if JWT_PUBLIC_CERT_PATH:
+        pub_key = Path(JWT_PUBLIC_CERT_PATH).read_text(encoding='utf-8')
+        payload = jwt.decode(token, pub_key, algorithms=['RS256'])
+    else:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
     return _normalize_user(payload)

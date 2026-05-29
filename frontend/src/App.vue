@@ -39,6 +39,11 @@ onMounted(async () => {
     if (cfg.ok) {
       const data = await cfg.json()
       mockMode = !!data.mockMode
+    } else {
+      // 백엔드 응답 있지만 오류 (404 등) → 연결 불가로 처리
+      backendDown.value = true
+      ready.value = true
+      return
     }
   } catch {
     // 백엔드 자체가 응답 없음

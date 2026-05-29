@@ -9,10 +9,10 @@
 ---
 
 # 개발 환경
-현재 개발은 Mac + UTM Ubuntu + code-server + SSH 환경에서 진행한다.
-AI(Claude/Codex)와 code-server 내부에서 대화하며 개발 중이다.
-하지만 최종 검증/배포 환경은 사내 Windows 환경이다.
-따라서 코드는 반드시 Windows 호환성을 고려해서 작성할 것.
+현재 AI(Claude/Codex)와 대화하는 환경은 Mac + UTM Ubuntu + code-server + SSH 환경이다.
+하지만 최종 검증/배포 환경은 사내 Ubuntu 환경이다.
+사용자가 이 웹을 들어오는 환경은 사내 WIndows 환경이다.
+따라서 반드시 코드는 사내 Ubuntu 환경으로 작성하고 빌드는 Windows 호환성을 고려해서 작성할 것.
 Linux 전용 코드, shell command, path 처리 사용 최소화.
 
 ---

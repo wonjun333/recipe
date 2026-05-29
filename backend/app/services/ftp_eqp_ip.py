@@ -27,6 +27,8 @@ def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
     if MOCK_MODE:
         items = MOCK_EQP_LIST
         return items[:limit] if limit and limit > 0 else list(items)
+    from sqlalchemy import text
+
     query = text(
         """
         SELECT

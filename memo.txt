@@ -7,6 +7,7 @@ lsof -ti :8000 |xargs -r kill -9
 
 cd /home/dev/project/recipe/frontend
 npm run build && npm run preview
+ kill -9 $(lsof -t -i :5174 -i :5175)
 
 cd /home/dev/project/recipe/backend
 PYTHONPATH= python tools/recipe_inventory_worker.py --offline-cooldown-min 60 --concurrency 20 --quiet --log-file logs/inventory.log --log-max-mb 10 --log-backup 3
@@ -55,3 +56,202 @@ curl "http://localhost:8000/recipe-inventory/latest-version?eqpId=<설비ID>&sou
 설정 버튼을 누르면 사용자가 본인의 Line, 분임조 를 선택할수 있도록 할거고, 이거는 db화 할거야.
 그래서 사용자가 설정을 통해서 db를 수정할수 있도록 하고싶어. db를 수정하는게 risk가 있다면 그 설정들을 저장해서 나중에 그사람이 로그인했을때, 그 line과 분임조가 불러와지도록 개발해줘.
 Line과 분임조는 controls 클래스에 있는 값들 중에 선택하도록 하면돼.
+
+
+구글
+
+var express = require('express');
+
+var fs = require('fs');
+
+var path = require('path');
+
+var https = require('https');
+
+var passport = require('passport');
+
+var saml = require('passport-saml').Strategy;
+
+var bodyParser = require('body-parser');
+
+var util = require('util');
+
+// SSL Option
+
+var option = {
+
+key: fs.readFileSync('cert/key.pem'), // 실제 운영 환경에서는 환경 변수나 보안 저장소 사용 권장  
+
+cert: fs.readFileSync('cert/cert.pem')
+
+};
+
+var app = express();
+
+app.locals.pretty = true;
+
+app.set('views', path.join(__dirname, 'views'));
+
+app.set('view engine', 'jade');
+
+app.use('/', express.static(path.join(__dirname, '/public')))
+
+app.use(passport.initialize());
+
+app.use(passport.session());
+
+app.use(bodyParser.urlencoded({extended:true}));
+
+app.use(bodyParser.json());
+
+// IDP Url
+
+// Dev
+
+//var idpUrl = '[DEV_IDP_URL]';
+
+// Ops
+
+var idpUrl = '[PROD_IDP_URL]';
+
+var strategy = new saml(
+
+{  
+
+	entryPoint: idpUrl,											// IDP Url  
+
+    issuer: '[YOUR_ENTITY_ID]',							// Entity ID  
+
+    callbackUrl: '[YOUR_CALLBACK_URL]',			// ACS Url  
+
+	// Dev  
+
+    //cert: '[DEV_SAML_CERTIFICATE]',  
+
+	// Ops  
+
+    cert: '[PROD_SAML_CERTIFICATE]',  
+
+    identifierFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',  
+
+    disableRequestedAuthnContext: true,  
+
+    signatureAlgorithm: 'sha256',  
+
+	acceptedClockSkewMs: -1 // SAML assertion not yet valid fix  
+
+},  
+
+function (profile, done){  
+
+	return done(null, {  
+
+		// Claim 설정  
+
+		LoginId: profile['http://schemas.sec.com/2018/05/identity/claims/LoginId'],  
+
+		CompId: profile['http://schemas.sec.com/2018/05/identity/claims/CompId'],  
+
+		DeptId: profile['http://schemas.sec.com/2018/05/identity/claims/DeptId'],  
+
+		Sabun: profile['http://schemas.sec.com/2018/05/identity/claims/Sabun'],  
+
+		Mail: profile['http://schemas.sec.com/2018/05/identity/claims/Mail'],  
+
+		UserId: profile['http://schemas.sec.com/2018/05/identity/claims/UserId'],  
+
+		DeptName: profile['http://schemas.sec.com/2018/05/identity/claims/DeptName'],  
+
+		GrdName: profile['http://schemas.sec.com/2018/05/identity/claims/GrdName'],  
+
+		Mobile: profile['http://schemas.sec.com/2018/05/identity/claims/Mobile'],  
+
+		Username: profile['http://schemas.sec.com/2018/05/identity/claims/Username'],  
+
+		Surname: profile['http://schemas.sec.com/2018/05/identity/claims/Surname'],  
+
+		Givenname: profile['http://schemas.sec.com/2018/05/identity/claims/Givenname']  
+
+	});  
+
+}
+
+);
+
+passport.use(strategy);
+
+passport.serializeUser(function(user, done){
+
+console.log("Serializing user");  
+
+done(null, user);
+
+});
+
+passport.deserializeUser(function(user, done){
+
+console.log("deserialize User");  
+
+done(null, user);
+
+});
+
+// SSO Request
+
+app.get('/',
+
+passport.authenticate('saml', { failureRedirect:'/', faulureFlash: true }),  
+
+function(req, res)  
+
+{  
+
+	console.log("resoponse");  
+
+	res.redirect('/');  
+
+}
+
+);
+
+// SSO Callback
+
+app.post('/samlconsume',
+
+passport.authenticate('saml', { failureRedirect:'/', faulureFlash: true }),  
+
+function(req, res)  
+
+{  
+
+	console.log("User : " + util.inspect(req.user));  
+
+	//res.send(req.user);  
+
+	res.render('home', {userinfo:req.user});  
+
+}
+
+);
+
+// Sign out
+
+app.get('/Signout',
+
+function(req, res)  
+
+{  
+
+	res.redirect(idpUrl + '?wa=wsignoutcleanup1.0')  
+
+}
+
+);
+
+// Server
+
+https.createServer(option, app).listen([PORT], function(){
+
+console.log("Server Running on port [PORT]...");
+
+});
