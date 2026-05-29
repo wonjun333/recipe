@@ -7,9 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.recipe_inventory import router as recipe_inventory_router
 from app.api.routes.recipe_test_impl import router as recipe_test_router
-from app.routers.auth import router as auth_router
 from app.routers.ebara import router as ebara_router
-from app.routers.user import router as user_router
 from app.settings import recipe_use_mock
 
 
@@ -39,8 +37,6 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT"],
         allow_headers=["*"],
     )
-    app.include_router(auth_router)
-    app.include_router(user_router)
     app.include_router(ebara_router)
     app.include_router(recipe_test_router, prefix="/api")
     app.include_router(recipe_inventory_router, prefix="/api")
@@ -61,25 +57,15 @@ def create_app() -> FastAPI:
             return rows
 
         sql = """
-            SELECT
-                id,
-                line_name,
-                team_name,
-                equipment_id,
-                ppid,
-                cas_name,
-                job_name,
-                unit_recipe_name,
-                ftp_path,
-                is_active,
-                created_at
+            SELECT id, line_name, team_name, equipment_id, ppid,
+                   cas_name, job_name, unit_recipe_name, ftp_path,
+                   is_active, created_at
             FROM core.recipe_unit
             WHERE (%s IS NULL OR equipment_id ILIKE %s)
               AND (%s IS NULL OR ppid ILIKE %s)
             ORDER BY id
             LIMIT 200
         """
-
         eq_like = f"%{equipment_id}%" if equipment_id else None
         ppid_like = f"%{ppid}%" if ppid else None
 
