@@ -49,7 +49,7 @@ CAS_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 JOB_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 RECIPE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 RECIPE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
-RECIPE_SOURCE_CACHE_TTL_SEC = 60.0
+RECIPE_SOURCE_CACHE_TTL_SEC = 10.0
 
 
 def _get_recipe_source_cached(cache_key: tuple[str, str]) -> dict[str, Any] | None:
