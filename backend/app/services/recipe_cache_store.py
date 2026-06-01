@@ -388,6 +388,47 @@ def reconcile_inventory_entries(eqp_id: str, source_path: str, entries: list[dic
             conn.close()
 
 
+def upsert_live_inventory_entries(eqp_id: str, source_path: str, entries: list[dict[Any, Any]], protected_lookup: Any = None) -> None:
+    """FTP 실시간 조회 결과를 DB에 upsert. 삭제/stale 처리는 하지 않음 (워커 담당)."""
+    ensure_schema()
+    seen_at = now_ts()
+    norm_source = _norm_path(source_path)
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _begin(conn)
+            for item in entries or []:
+                name = str(item.get('name') or '').strip()
+                if not name:
+                    continue
+                ext = str(item.get('ext') or '').strip() or _infer_ext(name)
+                modified_at = str(item.get('modifiedAt') or '').strip()
+                size = str(item.get('size') or '').strip()
+                row = conn.execute(
+                    _sql('SELECT first_seen_at, latest_version_id, cloud_protected, retain_cached, last_cache_refresh_at FROM equipment_inventory WHERE eqp_id=? AND source_path=? AND name=?'),
+                    (eqp_id, norm_source, name),
+                ).fetchone()
+                first_seen_at = str(row['first_seen_at']) if row else seen_at
+                latest_version_id = row['latest_version_id'] if row else None
+                prev_cloud = int(row['cloud_protected']) if row else 0
+                prev_retain = int(row['retain_cached']) if row else 0
+                prev_cache_refresh = str(row['last_cache_refresh_at'] or '') if row else ''
+                protected = bool(protected_lookup(name) if callable(protected_lookup) else prev_cloud)
+                retain_cached = 1 if (protected or prev_retain) else 0
+                conn.execute(
+                    _upsert_inventory_sql(),
+                    (
+                        eqp_id, norm_source, name, ext, modified_at, size,
+                        modified_at, size, prev_cache_refresh,
+                        first_seen_at, seen_at, latest_version_id,
+                        1 if protected else 0, retain_cached,
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def list_inventory_entries(eqp_id: str, source_path: str | None = None, exts: list[str] | None = None, include_absent: bool = True) -> list[dict[str, Any]]:
     ensure_schema()
     conn = _connect()

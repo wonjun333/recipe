@@ -6,16 +6,17 @@ import re
 import time  
 from typing import Any, Callable  
 from app.services.cloud_protected_registry import is_cloud_protected_file  
-from app.services.recipe_cache_store import (  
-    ensure_schema,  
-    get_inventory_entry,  
-    list_inventory_entries,  
-    list_latest_versions,  
-    mark_inventory_failure,  
-    reconcile_inventory_entries,  
-    resolve_inventory_failures,  
-    store_file_version,  
-    touch_inventory_state,  
+from app.services.recipe_cache_store import (
+    ensure_schema,
+    get_inventory_entry,
+    list_inventory_entries,
+    list_latest_versions,
+    mark_inventory_failure,
+    reconcile_inventory_entries,
+    resolve_inventory_failures,
+    store_file_version,
+    touch_inventory_state,
+    upsert_live_inventory_entries,
 )  
 from app.services.recipe_preview_service import build_recipe_preview_from_bytes  
 from app.services.recipe_vm_store import save_vm_file, list_vm_entries, read_vm_file_meta  
@@ -394,6 +395,10 @@ def list_cached_or_live_entries_for_source(
     if ftp_ip and ftp_id and ftp_pw:
         try:
             live_entries = filter_entries_by_exts(_list_live_entries_cached(ftp_ip, ftp_id, ftp_pw, source_path), exts)
+            try:
+                upsert_live_inventory_entries(eqp_id, source_path, live_entries, is_cloud_protected_file)
+            except Exception:
+                pass
             for entry in live_entries:
                 name = str(entry.get('name') or '').strip()
                 if not name:
