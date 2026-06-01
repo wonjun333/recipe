@@ -27,6 +27,8 @@ dist/
 certs/
 frontend/.env.local
 
+backend/logs/
+
 # OS
 .DS_Store
 Thumbs.db
