@@ -25,6 +25,8 @@ dist/
 
 # SSL certs (HTTPS)
 certs/
+*.pfx
+*.p7b
 frontend/.env.local
 
 backend/logs/

@@ -26,10 +26,11 @@ cert: fs.readFileSync('cert/cert.pem')
 
 };
 
-// 로그인 후 이동할 Vue 앱 주소 (채워넣을 값)
-var frontendUrl    = '[FRONTEND_URL]';   // 예: http://10.173.131.184:8282
+// 로그인 후 이동할 Vue 앱 주소
+var frontendUrl    = process.env.FRONTEND_URL || 'http://10.173.131.184:8282';
 var jwtExpireHours = 8;
 var cookieName     = 'auth_token';
+var cookieSecure   = frontendUrl.toLowerCase().startsWith('https://');
 
 var app = express();
 
@@ -174,7 +175,7 @@ function(req, res)
 	var token = jwt.sign(req.user, option.key, { algorithm: 'RS256', expiresIn: jwtExpireHours + 'h' });
 	res.cookie(cookieName, token, {
 		httpOnly: true,
-		secure:   true,
+		secure:   cookieSecure,
 		sameSite: 'lax',
 		maxAge:   jwtExpireHours * 3600 * 1000
 	});

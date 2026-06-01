@@ -49,6 +49,30 @@ CORS_ORIGINS=http://10.173.131.184:8282,https://10.173.131.184:8282
 
 ---
 
+## 2-1. SAML 인증 서버 (Nodejs_SAML)
+
+`Nodejs_SAML/index.js`는 SAML 인증 성공 후 사용자 claim을 RS256 JWT로 서명해 `auth_token` 쿠키에 저장하고 Vue 앱으로 이동합니다.
+
+```bash
+cd Nodejs_SAML
+npm install
+
+FRONTEND_URL='http://10.173.131.184:8282' \
+node index.js
+```
+
+`index.js` 안의 `idpUrl`, `issuer`, `callbackUrl`, `cert`는 샘플 코드 구조를 유지하므로 사내 값으로 치환해서 사용합니다.
+프론트가 HTTPS로 동작하면 `FRONTEND_URL`을 `https://...`로 바꾸면 `auth_token` 쿠키도 Secure로 발급됩니다.
+
+`frontend/.env.local`:
+
+```env
+VITE_SAML_URL=https://10.173.131.184:44364/
+VITE_SAML_LOGOUT_URL=https://10.173.131.184:44364/Signout
+```
+
+---
+
 ## 3. HTTPS 설정
 
 ### 3-1. 인증서 변환 (.pfx → .pem)

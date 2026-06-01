@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
-
 import jwt as pyjwt
 from cryptography.x509 import load_pem_x509_certificate
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 
-from app.config import MOCK_MODE, JWT_CERT_PATH
+from app.config import MOCK_MODE, JWT_CERT_PATH, JWT_COOKIE_NAME
 
 router = APIRouter()
 
@@ -20,10 +18,11 @@ _MOCK_USER = {
 
 
 @router.get("/api/auth/me")
-def get_me(auth_token: Optional[str] = Cookie(default=None)):
+def get_me(request: Request):
     if MOCK_MODE:
         return _MOCK_USER
 
+    auth_token = request.cookies.get(JWT_COOKIE_NAME)
     if not auth_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -35,3 +34,10 @@ def get_me(auth_token: Optional[str] = Cookie(default=None)):
         return payload
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@router.post("/api/auth/logout")
+def logout():
+    response = Response(status_code=204)
+    response.delete_cookie(JWT_COOKIE_NAME)
+    return response

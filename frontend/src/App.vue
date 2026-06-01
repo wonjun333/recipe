@@ -15,9 +15,9 @@ import TopBarNav from './components/TopBarNav.vue'
 interface AuthUser {
   LoginId: string
   Username: string
-  DeptName: string
-  Mail: string
-  [key: string]: string
+  DeptName?: string
+  Mail?: string
+  [key: string]: string | undefined
 }
 
 const currentUser = ref<AuthUser | null>(null)
@@ -26,8 +26,8 @@ onMounted(async () => {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' })
     if (res.status === 401) {
-      const samlUrl = import.meta.env.VITE_SAML_URL
-      if (samlUrl) window.location.href = samlUrl
+      const samlUrl = import.meta.env.VITE_SAML_URL || 'https://localhost:44364/'
+      window.location.href = samlUrl
       return
     }
     if (res.ok) {
