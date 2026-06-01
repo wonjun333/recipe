@@ -9,6 +9,13 @@ export default defineConfig(({ mode }) => {
   const sslKeyPath = env.SSL_KEY_PATH ? path.resolve(__dirname, env.SSL_KEY_PATH) : ''
   const sslCertPath = env.SSL_CERT_PATH ? path.resolve(__dirname, env.SSL_CERT_PATH) : ''
 
+  console.log('[vite] mode:', mode)
+  console.log('[vite] cwd:', process.cwd())
+  console.log('[vite] SSL_KEY_PATH env:', env.SSL_KEY_PATH)
+  console.log('[vite] SSL_CERT_PATH env:', env.SSL_CERT_PATH)
+  console.log('[vite] resolved key:', sslKeyPath, '→ exists:', sslKeyPath ? fs.existsSync(sslKeyPath) : false)
+  console.log('[vite] resolved cert:', sslCertPath, '→ exists:', sslCertPath ? fs.existsSync(sslCertPath) : false)
+
   let httpsOptions: { key: Buffer; cert: Buffer } | undefined
   if (sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     httpsOptions = {
