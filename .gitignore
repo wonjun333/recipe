@@ -23,6 +23,10 @@ recipe_vm_store/
 node_modules/
 dist/
 
+# SSL certs (HTTPS)
+certs/
+frontend/.env.local
+
 # OS
 .DS_Store
 Thumbs.db
