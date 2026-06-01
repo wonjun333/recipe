@@ -5,6 +5,7 @@ import ntpath
 import os
 import re
 import tempfile
+import time
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -47,7 +48,15 @@ BOOTSTRAP_CACHE: dict[str, dict[str, Any]] = {}
 CAS_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 JOB_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 RECIPE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
-RECIPE_SOURCE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+RECIPE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+RECIPE_SOURCE_CACHE_TTL_SEC = 60.0
+
+
+def _get_recipe_source_cached(cache_key: tuple[str, str]) -> dict[str, Any] | None:
+    entry = RECIPE_SOURCE_CACHE.get(cache_key)
+    if entry and (time.time() - entry[0]) < RECIPE_SOURCE_CACHE_TTL_SEC:
+        return entry[1]
+    return None
 
 DIR_LINE_RE = re.compile(
     r"^\s*(\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2}[AP]M)\s+(\d+)\s+(.+?)\s*$"
@@ -1042,7 +1051,7 @@ def resolve_source_recipe_name(eqp_id: str, source_kind: str, recipe_name: str) 
         return None
 
     cache_key = (eqp_id, source_kind)
-    cached = RECIPE_SOURCE_CACHE.get(cache_key)
+    cached = _get_recipe_source_cached(cache_key)
     items = list((cached or {}).get('items', []))
     if not items:
         ftp_ip, ftp_id, ftp_pw = load_eqp_ip(eqp_id)
@@ -1094,7 +1103,7 @@ def parse_source_recipe_id(recipe_id: str) -> tuple[str, str] | None:
 
 def find_source_recipe_modified_at(eqp_id: str, source_kind: str, recipe_name: str) -> str:
     cache_key = (eqp_id, source_kind)
-    cached = RECIPE_SOURCE_CACHE.get(cache_key)
+    cached = _get_recipe_source_cached(cache_key)
     if cached:
         for item in cached.get("items", []):
             if str(item.get("name", "")) == recipe_name:
@@ -1311,9 +1320,10 @@ def remove_bootstrap_name(eqp_id: str, kind: Literal['cas', 'job', 'recipe'], fi
 def update_recipe_source_cache_name(eqp_id: str, source_kind: str | None, source_name: str, target_name: str) -> None:
     if not source_kind:
         return
-    cache = RECIPE_SOURCE_CACHE.get((eqp_id, source_kind))
-    if not cache:
+    entry = RECIPE_SOURCE_CACHE.get((eqp_id, source_kind))
+    if not entry:
         return
+    cache = entry[1]
     for item in cache.get('items', []):
         if str(item.get('name', '')) == source_name:
             item['name'] = target_name
@@ -1325,10 +1335,10 @@ def remove_recipe_source_cache_name(eqp_id: str, source_kind: str | None, file_n
     if not source_kind:
         return
     cache_key = (eqp_id, source_kind)
-    cache = RECIPE_SOURCE_CACHE.get(cache_key)
-    if not cache:
+    entry = RECIPE_SOURCE_CACHE.get(cache_key)
+    if not entry:
         return
-    cache['items'] = [x for x in cache.get('items', []) if str(x.get('name', '')) != file_name]
+    entry[1]['items'] = [x for x in entry[1].get('items', []) if str(x.get('name', '')) != file_name]
 
 
 def build_minimal_cas_text(slots: list[dict[str, Any]]) -> str:
@@ -1885,8 +1895,9 @@ def get_metrology_source_debug(eqpId: str):
 @router.get("/recipe-source-list")
 def get_recipe_source_list(eqpId: str, sourceKind: str):
     cache_key = (eqpId, sourceKind)
-    if cache_key in RECIPE_SOURCE_CACHE:
-        return RECIPE_SOURCE_CACHE[cache_key]
+    cached = _get_recipe_source_cached(cache_key)
+    if cached is not None:
+        return cached
 
     if sourceKind not in RECIPE_SOURCE_CONFIG:
         raise HTTPException(status_code=400, detail=f"지원하지 않는 sourceKind: {sourceKind}")
@@ -1915,7 +1926,7 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
                     for x in source["items"]
                 ],
             }
-            RECIPE_SOURCE_CACHE[cache_key] = result
+            RECIPE_SOURCE_CACHE[cache_key] = (time.time(), result)
             return result
         except Exception as e:
             if sourceKind == 'metrologyRecipe':
@@ -1927,7 +1938,7 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
                     'readError': str(e),
                     'items': [],
                 }
-                RECIPE_SOURCE_CACHE[cache_key] = result
+                RECIPE_SOURCE_CACHE[cache_key] = (time.time(), result)
                 return result
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1956,7 +1967,7 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
         "readError": '',
         "items": items,
     }
-    RECIPE_SOURCE_CACHE[cache_key] = result
+    RECIPE_SOURCE_CACHE[cache_key] = (time.time(), result)
     return result
 
 
