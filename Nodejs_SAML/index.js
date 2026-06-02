@@ -49,21 +49,7 @@ var strategy = new SamlStrategy(
     acceptedClockSkewMs: Number(process.env.SAML_ACCEPTED_CLOCK_SKEW_MS || -1),
   },
   function (profile, done) {
-    return done(null, {
-      LoginId: profile['http://schemas.sec.com/2018/05/identity/claims/LoginId'],
-      CompId: profile['http://schemas.sec.com/2018/05/identity/claims/CompId'],
-      DeptId: profile['http://schemas.sec.com/2018/05/identity/claims/DeptId'],
-      Sabun: profile['http://schemas.sec.com/2018/05/identity/claims/Sabun'],
-      Mail: profile['http://schemas.sec.com/2018/05/identity/claims/Mail'],
-      UserId: profile['http://schemas.sec.com/2018/05/identity/claims/UserId'],
-      DeptName: profile['http://schemas.sec.com/2018/05/identity/claims/DeptName'],
-      GrdName: profile['http://schemas.sec.com/2018/05/identity/claims/GrdName'],
-      Mobile: profile['http://schemas.sec.com/2018/05/identity/claims/Mobile'],
-      Username: profile['http://schemas.sec.com/2018/05/identity/claims/Username'],
-      Surname: profile['http://schemas.sec.com/2018/05/identity/claims/Surname'],
-      Givenname: profile['http://schemas.sec.com/2018/05/identity/claims/Givenname'],
-      rawProfile: profile,
-    });
+    return done(null, buildUserClaims(profile));
   }
 );
 
@@ -89,22 +75,32 @@ app.post(
   }),
   function (req, res) {
     console.log('SAML callback body:', util.inspect(summarizeCallbackFields(req.body || {}), { depth: 5 }));
-    console.log('SAML user:', util.inspect(req.user, { depth: 10 }));
+    console.log('SAML user:', util.inspect(req.user, { depth: 3 }));
 
-    var token = jwt.sign(req.user, jwtSigningKey, {
-      algorithm: 'RS256',
-      expiresIn: jwtExpireHours + 'h',
-    });
+    try {
+      var token = jwt.sign(req.user, jwtSigningKey, {
+        algorithm: 'RS256',
+        expiresIn: jwtExpireHours + 'h',
+      });
 
-    res.cookie(cookieName, token, {
-      httpOnly: true,
-      secure: cookieSecure,
-      sameSite: 'lax',
-      maxAge: jwtExpireHours * 3600 * 1000,
-      path: '/',
-    });
+      res.cookie(cookieName, token, {
+        httpOnly: true,
+        secure: cookieSecure,
+        sameSite: 'lax',
+        maxAge: jwtExpireHours * 3600 * 1000,
+        path: '/',
+      });
 
-    res.redirect(frontendUrl);
+      console.log('SAML token issued:', {
+        loginId: req.user && req.user.LoginId,
+        username: req.user && req.user.Username,
+        tokenLength: token.length,
+      });
+      res.redirect(frontendUrl);
+    } catch (error) {
+      console.error('SAML token issue failed:', error && error.stack ? error.stack : error);
+      res.status(500).type('text').send('SAML token issue failed');
+    }
   }
 );
 
@@ -179,6 +175,30 @@ function summarizeCallbackFields(body) {
     result[key] = value;
   });
   return result;
+}
+
+function buildUserClaims(profile) {
+  return {
+    LoginId: claim(profile, 'LoginId'),
+    CompId: claim(profile, 'CompId'),
+    DeptId: claim(profile, 'DeptId'),
+    Sabun: claim(profile, 'Sabun'),
+    Mail: claim(profile, 'Mail'),
+    UserId: claim(profile, 'UserId'),
+    DeptName: claim(profile, 'DeptName'),
+    GrdName: claim(profile, 'GrdName'),
+    Mobile: claim(profile, 'Mobile'),
+    Username: claim(profile, 'Username'),
+    Surname: claim(profile, 'Surname'),
+    Givenname: claim(profile, 'Givenname'),
+  };
+}
+
+function claim(profile, name) {
+  var value = profile['http://schemas.sec.com/2018/05/identity/claims/' + name];
+  if (Array.isArray(value)) return value.length ? String(value[0]) : '';
+  if (value === undefined || value === null) return '';
+  return String(value);
 }
 
 function parseBool(value, defaultValue) {
