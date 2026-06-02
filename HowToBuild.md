@@ -24,6 +24,42 @@ npm run preview
 
 > **주의**: code-server 환경에서는 `npm run dev` 불가. 반드시 `build → preview` 순서로 실행.
 
+### 사내 Ubuntu 8282 배포
+
+사내 Ubuntu 운영 테스트에서는 `npm run preview`로 8282를 직접 열지 않는다.
+`frontend/dist`를 빌드한 뒤 nginx가 8282에서 정적 파일, API, SAML 경로를 함께 라우팅한다.
+
+```bash
+cd /root/project/recipe
+cd frontend
+npm install
+npm run build
+
+cd ..
+sudo bash scripts/install_ubuntu_nginx.sh
+./restart.sh
+```
+
+기본 라우팅:
+
+```text
+GET  /login -> Nodejs_SAML :9000/login
+POST /      -> Nodejs_SAML :9000/
+/api/*      -> FastAPI :8000/api/*
+/*          -> /var/www/recipe/index.html
+```
+
+확인:
+
+```bash
+curl -k -i https://10.173.131.184:8282/
+curl -k -i https://10.173.131.184:8282/login
+curl -k -i "https://10.173.131.184:8282/api/recipe-inventory/snapshot?eqpId=CACP701"
+```
+
+`/login`과 `/api`는 정상인데 `/`만 404이면 nginx의 `root` 또는 정적 파일 배포 문제다.
+`scripts/install_ubuntu_nginx.sh`는 빌드 결과를 `/var/www/recipe`로 복사하고 nginx 설정을 다시 생성한다.
+
 ### Backend 실행
 
 ```bash
