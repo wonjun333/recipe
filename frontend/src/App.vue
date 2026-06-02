@@ -25,6 +25,10 @@ const currentUser = ref<AuthUser | null>(null)
 onMounted(async () => {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' })
+    if (res.status === 401) {
+      window.location.href = '/login'
+      return
+    }
     if (res.ok) {
       currentUser.value = await res.json()
     }

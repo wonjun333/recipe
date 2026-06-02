@@ -6,6 +6,7 @@ var passport = require('passport');
 var SamlStrategy = require('passport-saml').Strategy;
 var bodyParser = require('body-parser');
 var util = require('util');
+var jwt = require('jsonwebtoken');
 
 loadDotEnv(path.join(__dirname, '.env'));
 
@@ -19,9 +20,15 @@ app.use(passport.initialize());
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 
-var port = Number(process.env.SAML_PORT || 8282);
+var port = Number(process.env.SAML_PORT || 9000);
 var sslKeyPath = resolveLocalPath(process.env.SAML_SSL_KEY_PATH || 'cert/key.pem');
 var sslCertPath = resolveLocalPath(process.env.SAML_SSL_CERT_PATH || 'cert/cert.pem');
+var frontendUrl = process.env.FRONTEND_URL || process.env.SAML_SERVICE_URL || 'https://10.173.131.184:8282/';
+var cookieName = process.env.AUTH_COOKIE_NAME || 'auth_token';
+var cookieSecure = parseBool(process.env.AUTH_COOKIE_SECURE, true);
+var jwtExpireHours = Number(process.env.JWT_EXPIRE_HOURS || 8);
+var jwtSigningKeyPath = resolveLocalPath(process.env.JWT_SIGNING_KEY_PATH || process.env.SAML_SSL_KEY_PATH || 'cert/key.pem');
+var jwtSigningKey = fs.readFileSync(jwtSigningKeyPath, 'utf8');
 
 var samlEntryPoint = requiredEnv('SAML_ENTRY_POINT');
 var samlIssuer = requiredEnv('SAML_ISSUER');
@@ -81,16 +88,23 @@ app.post(
     session: false,
   }),
   function (req, res) {
-    var result = {
-      receivedAt: new Date().toISOString(),
-      user: req.user,
-      callbackFields: summarizeCallbackFields(req.body || {}),
-    };
-
     console.log('SAML callback body:', util.inspect(summarizeCallbackFields(req.body || {}), { depth: 5 }));
     console.log('SAML user:', util.inspect(req.user, { depth: 10 }));
 
-    res.type('html').send(renderDebugPage(result));
+    var token = jwt.sign(req.user, jwtSigningKey, {
+      algorithm: 'RS256',
+      expiresIn: jwtExpireHours + 'h',
+    });
+
+    res.cookie(cookieName, token, {
+      httpOnly: true,
+      secure: cookieSecure,
+      sameSite: 'lax',
+      maxAge: jwtExpireHours * 3600 * 1000,
+      path: '/',
+    });
+
+    res.redirect(frontendUrl);
   }
 );
 
@@ -104,6 +118,12 @@ app.get('/', function (_req, res) {
 
 app.get('/Signout', function (_req, res) {
   noStore(res);
+  res.clearCookie(cookieName, {
+    httpOnly: true,
+    secure: cookieSecure,
+    sameSite: 'lax',
+    path: '/',
+  });
   res.redirect(samlEntryPoint + (samlEntryPoint.indexOf('?') >= 0 ? '&' : '?') + 'wa=wsignoutcleanup1.0');
 });
 
@@ -115,7 +135,7 @@ var httpsOptions = {
 };
 
 https.createServer(httpsOptions, app).listen(port, function () {
-  console.log('SAML debug server running at https://0.0.0.0:' + port + '/');
+  console.log('SAML auth server running at https://0.0.0.0:' + port + '/');
   console.log('Login URL: https://0.0.0.0:' + port + '/login');
   console.log('Callback URL: ' + samlCallbackUrl);
 });
@@ -161,33 +181,9 @@ function summarizeCallbackFields(body) {
   return result;
 }
 
-function renderDebugPage(data) {
-  return (
-    '<!doctype html>' +
-    '<html>' +
-    '<head>' +
-    '<meta charset="utf-8">' +
-    '<title>SAML Callback Result</title>' +
-    '<style>body{font-family:Arial,sans-serif;margin:24px;background:#f7f7f7;color:#111}' +
-    'pre{white-space:pre-wrap;background:#fff;border:1px solid #ddd;padding:16px;overflow:auto}</style>' +
-    '</head>' +
-    '<body>' +
-    '<h1>SAML Callback Result</h1>' +
-    '<pre>' +
-    escapeHtml(JSON.stringify(data, null, 2)) +
-    '</pre>' +
-    '</body>' +
-    '</html>'
-  );
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function parseBool(value, defaultValue) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  return ['1', 'true', 'yes', 'y', 'on'].indexOf(String(value).toLowerCase()) >= 0;
 }
 
 function requiredEnv(name) {

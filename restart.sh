@@ -10,14 +10,13 @@ LOG_DIR="$BACKEND_DIR/logs"
 echo "[1/4] 기존 프로세스 종료 중..."
 
 pkill -f "uvicorn app.main:app" 2>/dev/null
-pkill -f "vite preview"         2>/dev/null
 pkill -f "recipe_inventory_worker" 2>/dev/null
 pkill -f "node.*Nodejs_SAML"    2>/dev/null
 
 sleep 2
 
 # 포트가 남아있으면 강제 종료
-for PORT in 8000 8282; do
+for PORT in 8000 9000; do
     PID=$(lsof -ti :$PORT 2>/dev/null)
     if [ -n "$PID" ]; then
         echo "  포트 $PORT 강제 종료 (PID: $PID)"
@@ -65,7 +64,7 @@ echo "  PID: $!"
 sleep 2
 echo ""
 echo "=== 서비스 상태 ==="
-for PORT in 8000 8282; do
+for PORT in 8000 9000; do
     PID=$(lsof -ti :$PORT 2>/dev/null)
     if [ -n "$PID" ]; then
         echo "  포트 $PORT: 실행 중 (PID: $PID)"

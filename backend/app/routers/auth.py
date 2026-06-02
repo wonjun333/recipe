@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from pathlib import Path
 
-from app.config import AUTH_COOKIE_NAME
+import jwt
+from fastapi import APIRouter, HTTPException, Request, Response
+
+from app.config import AUTH_COOKIE_NAME, AUTH_MODE, JWT_CERT_PATH
 
 router = APIRouter()
 
@@ -15,8 +18,19 @@ _MOCK_USER = {
 
 
 @router.get("/api/auth/me")
-def get_me():
-    return _MOCK_USER
+def get_me(request: Request):
+    if AUTH_MODE != "saml":
+        return _MOCK_USER
+
+    auth_token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        cert_pem = Path(JWT_CERT_PATH).read_text(encoding="utf-8")
+        return jwt.decode(auth_token, cert_pem, algorithms=["RS256"])
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid token") from exc
 
 
 @router.post("/api/auth/logout")
