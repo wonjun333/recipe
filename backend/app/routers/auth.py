@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import jwt
@@ -8,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from app.config import AUTH_COOKIE_NAME, AUTH_MODE, JWT_CERT_PATH
 
 router = APIRouter()
+logger = logging.getLogger("recipe.auth")
 
 _MOCK_USER = {
     "LoginId": "dev_user",
@@ -24,12 +26,32 @@ def get_me(request: Request):
 
     auth_token = request.cookies.get(AUTH_COOKIE_NAME)
     if not auth_token:
+        logger.info(
+            "SAML auth failed: cookie missing cookie_name=%s received_cookies=%s",
+            AUTH_COOKIE_NAME,
+            sorted(request.cookies.keys()),
+        )
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     try:
-        cert_pem = Path(JWT_CERT_PATH).read_text(encoding="utf-8")
-        return jwt.decode(auth_token, cert_pem, algorithms=["RS256"])
+        cert_path = Path(JWT_CERT_PATH)
+        cert_pem = cert_path.read_text(encoding="utf-8")
+        payload = jwt.decode(auth_token, cert_pem, algorithms=["RS256"])
+        logger.info(
+            "SAML auth succeeded: login_id=%s username=%s token_length=%s cert_path=%s",
+            payload.get("LoginId") or payload.get("sub"),
+            payload.get("Username"),
+            len(auth_token),
+            cert_path,
+        )
+        return payload
     except Exception as exc:
+        logger.info(
+            "SAML auth failed: invalid token error=%s token_length=%s cert_path=%s",
+            exc.__class__.__name__,
+            len(auth_token),
+            JWT_CERT_PATH,
+        )
         raise HTTPException(status_code=401, detail="Invalid token") from exc
 
 

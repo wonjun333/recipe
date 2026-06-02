@@ -186,6 +186,13 @@ cd Nodejs_SAML
 npm install
 ```
 
+`jsonwebtoken` 오류가 나면 `Nodejs_SAML` 의존성이 설치되지 않은 것이다.
+
+```bash
+cd Nodejs_SAML
+npm install --omit=dev
+```
+
 Python 패키지:
 
 ```bash
@@ -208,6 +215,7 @@ npm start
 
 `restart.sh`는 이제 `8000`, `9000`만 관리한다.
 `8282` 프론트/reverse proxy는 별도 관리한다.
+스크립트 내부에서 backend와 worker는 `PYTHONPATH=.`로 실행하고, `Nodejs_SAML/node_modules/jsonwebtoken`이 없으면 `npm install --omit=dev`를 먼저 수행한다.
 
 ---
 
@@ -264,3 +272,23 @@ lsof -ti :9000
 tail -f backend/logs/saml.log
 ```
 
+`Cannot find module 'jsonwebtoken'`이면:
+
+```bash
+cd Nodejs_SAML
+npm install --omit=dev
+```
+
+그 다음 재시작한다.
+
+### worker.log에 `No module named 'app'`
+
+worker 실행 시 Python import root가 잘못 잡힌 것이다.
+현재 `restart.sh`는 아래처럼 `PYTHONPATH=.`를 붙여 실행하도록 수정되어 있다.
+
+```bash
+cd backend
+PYTHONPATH=. python tools/recipe_inventory_worker.py ...
+```
+
+서버에 최신 `restart.sh`가 반영되어 있는지 확인한다.

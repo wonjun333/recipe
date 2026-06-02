@@ -38,14 +38,14 @@ mkdir -p "$LOG_DIR"
 # ── 3. 백엔드 시작 ───────────────────────────────────────────────
 echo "[2/4] 백엔드 시작 중..."
 cd "$BACKEND_DIR"
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+nohup env PYTHONPATH=. python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     > "$LOG_DIR/backend.log" 2>&1 &
 echo "  PID: $!"
 
 # ── 4. 워커 시작 ─────────────────────────────────────────────────
 echo "[3/4] 워커 시작 중..."
 cd "$BACKEND_DIR"
-nohup python tools/recipe_inventory_worker.py \
+nohup env PYTHONPATH=. python tools/recipe_inventory_worker.py \
     --offline-cooldown-min 60 \
     --concurrency 10 \
     --quiet \
@@ -56,6 +56,10 @@ echo "  PID: $!"
 # ── 5. SAML 인증 서버 시작 ───────────────────────────────────────
 echo "[4/4] SAML 인증 서버 시작 중..."
 cd "$SAML_DIR"
+if [ ! -d node_modules/jsonwebtoken ]; then
+    echo "  Node 의존성 설치 중..."
+    npm install --omit=dev >> "$LOG_DIR/saml.log" 2>&1
+fi
 nohup npm start \
     > "$LOG_DIR/saml.log" 2>&1 &
 echo "  PID: $!"

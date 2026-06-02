@@ -7,6 +7,7 @@ var SamlStrategy = require('passport-saml').Strategy;
 var bodyParser = require('body-parser');
 var util = require('util');
 var jwt = require('jsonwebtoken');
+var crypto = require('crypto');
 
 loadDotEnv(path.join(__dirname, '.env'));
 
@@ -29,6 +30,10 @@ var cookieSecure = parseBool(process.env.AUTH_COOKIE_SECURE, true);
 var jwtExpireHours = Number(process.env.JWT_EXPIRE_HOURS || 8);
 var jwtSigningKeyPath = resolveLocalPath(process.env.JWT_SIGNING_KEY_PATH || process.env.SAML_SSL_KEY_PATH || 'cert/key.pem');
 var jwtSigningKey = fs.readFileSync(jwtSigningKeyPath, 'utf8');
+var jwtUserClaims = parseList(
+  process.env.JWT_USER_CLAIMS ||
+    'LoginId,CompId,DeptId,Sabun,Mail,UserId,DeptName,GrdName,Mobile,Username,Surname,Givenname'
+);
 
 var samlEntryPoint = requiredEnv('SAML_ENTRY_POINT');
 var samlIssuer = requiredEnv('SAML_ISSUER');
@@ -49,7 +54,7 @@ var strategy = new SamlStrategy(
     acceptedClockSkewMs: Number(process.env.SAML_ACCEPTED_CLOCK_SKEW_MS || -1),
   },
   function (profile, done) {
-    return done(null, buildUserClaims(profile));
+    return done(null, buildUserClaims(profile, jwtUserClaims));
   }
 );
 
@@ -75,10 +80,11 @@ app.post(
   }),
   function (req, res) {
     console.log('SAML callback body:', util.inspect(summarizeCallbackFields(req.body || {}), { depth: 5 }));
-    console.log('SAML user:', util.inspect(req.user, { depth: 3 }));
+    console.log('SAML user summary:', util.inspect(summarizeUser(req.user || {}), { depth: 3 }));
 
     try {
-      var token = jwt.sign(req.user, jwtSigningKey, {
+      var payload = buildJwtPayload(req.user || {});
+      var token = jwt.sign(payload, jwtSigningKey, {
         algorithm: 'RS256',
         expiresIn: jwtExpireHours + 'h',
       });
@@ -92,9 +98,12 @@ app.post(
       });
 
       console.log('SAML token issued:', {
-        loginId: req.user && req.user.LoginId,
-        username: req.user && req.user.Username,
+        loginId: payload.LoginId,
+        username: payload.Username,
+        claimKeys: Object.keys(payload).sort(),
         tokenLength: token.length,
+        cookieName: cookieName,
+        cookieSecure: cookieSecure,
       });
       res.redirect(frontendUrl);
     } catch (error) {
@@ -177,21 +186,47 @@ function summarizeCallbackFields(body) {
   return result;
 }
 
-function buildUserClaims(profile) {
-  return {
-    LoginId: claim(profile, 'LoginId'),
-    CompId: claim(profile, 'CompId'),
-    DeptId: claim(profile, 'DeptId'),
-    Sabun: claim(profile, 'Sabun'),
-    Mail: claim(profile, 'Mail'),
-    UserId: claim(profile, 'UserId'),
-    DeptName: claim(profile, 'DeptName'),
-    GrdName: claim(profile, 'GrdName'),
-    Mobile: claim(profile, 'Mobile'),
-    Username: claim(profile, 'Username'),
-    Surname: claim(profile, 'Surname'),
-    Givenname: claim(profile, 'Givenname'),
+function buildUserClaims(profile, names) {
+  var claims = {};
+  names.forEach(function (name) {
+    setIfPresent(claims, name, claim(profile, name));
+  });
+
+  setIfPresent(claims, 'LoginId', claims.LoginId || profile.nameID || claim(profile, 'UserId'));
+  setIfPresent(claims, 'Username', claims.Username || claims.Givenname || claims.Surname || claims.LoginId);
+  return claims;
+}
+
+function buildJwtPayload(user) {
+  var payload = {};
+  Object.keys(user).forEach(function (key) {
+    setIfPresent(payload, key, user[key]);
+  });
+
+  if (payload.LoginId && !payload.sub) {
+    payload.sub = payload.LoginId;
+  }
+  if (!payload.jti) {
+    payload.jti = crypto.randomBytes(12).toString('hex');
+  }
+  return payload;
+}
+
+function summarizeUser(user) {
+  var summary = {
+    claimKeys: Object.keys(user).sort(),
   };
+  ['LoginId', 'Username', 'DeptName', 'Mail', 'UserId', 'Sabun'].forEach(function (key) {
+    if (user[key]) summary[key] = String(user[key]).slice(0, 80);
+  });
+  return summary;
+}
+
+function setIfPresent(target, key, value) {
+  if (value === undefined || value === null) return;
+  var text = String(value).trim();
+  if (!text) return;
+  target[key] = text;
 }
 
 function claim(profile, name) {
@@ -204,6 +239,15 @@ function claim(profile, name) {
 function parseBool(value, defaultValue) {
   if (value === undefined || value === null || value === '') return defaultValue;
   return ['1', 'true', 'yes', 'y', 'on'].indexOf(String(value).toLowerCase()) >= 0;
+}
+
+function parseList(value) {
+  return String(value || '')
+    .split(',')
+    .map(function (item) {
+      return item.trim();
+    })
+    .filter(Boolean);
 }
 
 function requiredEnv(name) {
