@@ -467,7 +467,7 @@ Option B (Phase 3, 권장 장기): SQLite 이관 (ERD §12.5 권고)
 
 1. [ ] C-05: 인증/권한 미들웨어 도입
    파일: backend/app/dependencies/auth.py (신규)
-   - 사내 SSO 또는 API Key 기반 Depends 미들웨어
+   - 사내 인증 또는 API Key 기반 Depends 미들웨어
    - actorName/actorTeam을 클라이언트 임의 지정 차단 → 인증 토큰에서 추출
    예상 기간: 1-2일
 

@@ -87,8 +87,7 @@ async function logout() {
   try {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
   } finally {
-    const logoutUrl = import.meta.env.VITE_SAML_LOGOUT_URL
-    window.location.href = logoutUrl || '/'
+    window.location.href = '/'
   }
 }
 </script>

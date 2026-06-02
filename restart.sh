@@ -3,7 +3,6 @@
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_DIR/backend"
-FRONTEND_DIR="$PROJECT_DIR/frontend"
 SAML_DIR="$PROJECT_DIR/Nodejs_SAML"
 LOG_DIR="$BACKEND_DIR/logs"
 
@@ -18,7 +17,7 @@ pkill -f "node.*Nodejs_SAML"    2>/dev/null
 sleep 2
 
 # 포트가 남아있으면 강제 종료
-for PORT in 8000 8282 44364; do
+for PORT in 8000 8282; do
     PID=$(lsof -ti :$PORT 2>/dev/null)
     if [ -n "$PID" ]; then
         echo "  포트 $PORT 강제 종료 (PID: $PID)"
@@ -55,11 +54,11 @@ nohup python tools/recipe_inventory_worker.py \
     > "$LOG_DIR/worker.log" 2>&1 &
 echo "  PID: $!"
 
-# ── 5. 프론트엔드 시작 ───────────────────────────────────────────
-echo "[4/4] 프론트엔드 시작 중..."
-cd "$FRONTEND_DIR"
-nohup npm run preview \
-    > "$LOG_DIR/frontend.log" 2>&1 &
+# ── 5. SAML 인증 서버 시작 ───────────────────────────────────────
+echo "[4/4] SAML 인증 서버 시작 중..."
+cd "$SAML_DIR"
+nohup npm start \
+    > "$LOG_DIR/saml.log" 2>&1 &
 echo "  PID: $!"
 
 # ── 완료 ─────────────────────────────────────────────────────────
@@ -78,4 +77,4 @@ echo ""
 echo "로그 확인:"
 echo "  백엔드  : tail -f $LOG_DIR/backend.log"
 echo "  워커    : tail -f $LOG_DIR/inventory.log"
-echo "  프론트  : tail -f $LOG_DIR/frontend.log"
+echo "  SAML    : tail -f $LOG_DIR/saml.log"

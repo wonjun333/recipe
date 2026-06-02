@@ -71,7 +71,7 @@
 
 - **파일**: 모든 라우터
 - **문제**: JWT·API Key·Depends 없음. actorName/actorTeam 클라이언트 임의 지정 → 감사 로그 위조 가능
-- **수정**: 사내 SSO/API Key 기반 `Depends` 미들웨어 도입
+- **수정**: 사내 인증/API Key 기반 `Depends` 미들웨어 도입
 
 ---
 
