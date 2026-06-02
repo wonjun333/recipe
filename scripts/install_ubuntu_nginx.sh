@@ -94,7 +94,7 @@ server {
     error_page 418 = @saml_callback;
 
     location @saml_callback {
-        proxy_pass https://127.0.0.1:9000/;
+        proxy_pass https://127.0.0.1:9000;
         proxy_ssl_verify off;
         proxy_set_header Host \$host:${PUBLIC_PORT};
         proxy_set_header X-Real-IP \$remote_addr;
