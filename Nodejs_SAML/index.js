@@ -62,6 +62,11 @@ passport.use(strategy);
 
 app.get('/login', function (_req, res, next) {
   noStore(res);
+  if (getCookie(_req, cookieName)) {
+    console.log('SAML login skipped: auth cookie already exists');
+    res.redirect(frontendUrl);
+    return;
+  }
   passport.authenticate('saml', {
     failureRedirect: '/login',
     session: false,
@@ -72,12 +77,23 @@ app.post(
   '/',
   function (_req, res, next) {
     noStore(res);
-    next();
+    passport.authenticate('saml', {
+      session: false,
+    }, function (error, user, info) {
+      if (error) {
+        console.error('SAML callback failed:', error && error.stack ? error.stack : error);
+        res.status(401).type('text').send('SAML callback failed');
+        return;
+      }
+      if (!user) {
+        console.error('SAML callback failed: user missing', info || {});
+        res.status(401).type('text').send('SAML user missing');
+        return;
+      }
+      _req.user = user;
+      next();
+    })(_req, res, next);
   },
-  passport.authenticate('saml', {
-    failureRedirect: '/login',
-    session: false,
-  }),
   function (req, res) {
     console.log('SAML callback body:', util.inspect(summarizeCallbackFields(req.body || {}), { depth: 5 }));
     console.log('SAML user summary:', util.inspect(summarizeUser(req.user || {}), { depth: 3 }));
@@ -150,6 +166,18 @@ function noStore(res) {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.setHeader('Surrogate-Control', 'no-store');
+}
+
+function getCookie(req, name) {
+  var header = req.headers.cookie || '';
+  return header
+    .split(';')
+    .map(function (item) {
+      return item.trim();
+    })
+    .some(function (item) {
+      return item.indexOf(name + '=') === 0;
+    });
 }
 
 function loadSamlIdpCert() {

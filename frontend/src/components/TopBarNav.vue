@@ -16,11 +16,15 @@
           :title="userTitle"
           @click="menuOpen = !menuOpen"
         >
-          {{ avatarLetter }}
+          <span class="avatar-mark">{{ avatarLetter }}</span>
+          <span class="avatar-copy">
+            <span class="avatar-name">{{ displayName }}</span>
+            <span class="avatar-meta">{{ topbarMeta }}</span>
+          </span>
         </button>
         <div v-if="menuOpen" class="user-panel">
           <div class="user-name">{{ displayName }}</div>
-          <div class="user-id">{{ props.user?.LoginId || '미인증' }}</div>
+          <div class="user-id">{{ topbarMeta }}</div>
           <dl class="user-details">
             <template v-for="item in visibleUserFields" :key="item.label">
               <dt>{{ item.label }}</dt>
@@ -41,8 +45,10 @@ import { RouterLink } from 'vue-router'
 interface AuthUser {
   LoginId: string
   Username: string
+  DisplayName?: string
   DeptName?: string
   Mail?: string
+  MailAccount?: string
   CompId?: string
   DeptId?: string
   Sabun?: string
@@ -60,10 +66,20 @@ const avatarLetter = computed(() => {
   return seed ? seed[0].toUpperCase() : '?'
 })
 
-const displayName = computed(() => props.user?.Username || props.user?.LoginId || '로그인 필요')
+const displayName = computed(() => props.user?.DisplayName || props.user?.Username || props.user?.LoginId || '로그인 필요')
+const mailAccount = computed(() => {
+  const explicit = props.user?.MailAccount
+  if (explicit) return explicit
+  const mail = props.user?.Mail || ''
+  return mail.includes('@') ? mail.split('@')[0] : mail
+})
+const topbarMeta = computed(() => {
+  if (!props.user) return '미인증'
+  return [props.user.DeptName, mailAccount.value].filter(Boolean).join(' / ') || props.user.LoginId || '미인증'
+})
 const userTitle = computed(() => {
   if (!props.user) return '로그인 정보 없음'
-  return `${displayName.value} (${props.user.LoginId || props.user.UserId || '-'})`
+  return `${displayName.value} (${topbarMeta.value})`
 })
 
 const visibleUserFields = computed(() => {
@@ -71,6 +87,7 @@ const visibleUserFields = computed(() => {
   if (!user) return []
   return [
     ['부서', user.DeptName],
+    ['메일 ID', mailAccount.value],
     ['직급', user.GrdName],
     ['메일', user.Mail],
     ['사번', user.Sabun],
@@ -139,21 +156,63 @@ async function logout() {
 .nav-item.router-link-active { background: #007acc; color: #fff; }
 
 .avatar-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: #007acc;
-  color: #fff;
-  font-size: 14px;
+  min-width: 32px;
+  height: 36px;
+  max-width: 260px;
+  border-radius: 999px;
+  border: 1px solid #bfd3e8;
+  background: #fff;
+  color: #0f172a;
+  padding: 2px 10px 2px 2px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: background .14s;
+  justify-content: flex-start;
+  gap: 8px;
+  transition: background .14s, border-color .14s;
 }
-.avatar-btn:hover { background: #005fa3; }
+.avatar-btn:hover {
+  background: #f4f8fc;
+  border-color: #8fb8dc;
+}
+.avatar-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: #007acc;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+}
+.avatar-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+.avatar-name,
+.avatar-meta {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avatar-name {
+  font-size: 12px;
+  font-weight: 800;
+}
+.avatar-meta {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+}
 
 .user-menu {
   position: relative;
@@ -212,5 +271,16 @@ async function logout() {
 }
 .logout-btn:hover {
   background: #f8fafc;
+}
+
+@media (max-width: 760px) {
+  .avatar-btn {
+    width: 32px;
+    height: 32px;
+    padding: 1px;
+  }
+  .avatar-copy {
+    display: none;
+  }
 }
 </style>
