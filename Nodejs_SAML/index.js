@@ -72,16 +72,24 @@ app.post(
   '/',
   function (_req, res, next) {
     noStore(res);
+    var callbackSummary = summarizeCallbackFields(_req.body || {});
+    console.log('SAML callback body:', util.inspect(callbackSummary, { depth: 5 }));
     passport.authenticate('saml', {
       session: false,
     }, function (error, user, info) {
       if (error) {
-        console.error('SAML callback failed:', error && error.stack ? error.stack : error);
-        res.status(401).type('text').send('SAML callback failed');
+        console.error('SAML callback failed:', util.inspect({
+          error: summarizeError(error),
+          responseStatus: summarizeSamlResponseStatus(_req.body && _req.body.SAMLResponse),
+        }, { depth: 5 }));
+        res.status(401).type('text').send('SAML callback failed: ' + safeErrorMessage(error));
         return;
       }
       if (!user) {
-        console.error('SAML callback failed: user missing', info || {});
+        console.error('SAML callback failed: user missing', util.inspect({
+          info: info || {},
+          responseStatus: summarizeSamlResponseStatus(_req.body && _req.body.SAMLResponse),
+        }, { depth: 5 }));
         res.status(401).type('text').send('SAML user missing');
         return;
       }
@@ -90,7 +98,6 @@ app.post(
     })(_req, res, next);
   },
   function (req, res) {
-    console.log('SAML callback body:', util.inspect(summarizeCallbackFields(req.body || {}), { depth: 5 }));
     console.log('SAML user summary:', util.inspect(summarizeUser(req.user || {}), { depth: 3 }));
 
     try {
@@ -206,6 +213,46 @@ function summarizeCallbackFields(body) {
     result[key] = value;
   });
   return result;
+}
+
+function summarizeSamlResponseStatus(encodedResponse) {
+  var text = typeof encodedResponse === 'string' ? encodedResponse : String(encodedResponse || '');
+  if (!text) return { present: false };
+
+  try {
+    var xml = Buffer.from(text, 'base64').toString('utf8');
+    var codes = [];
+    var statusCodeRegex = /<[^>]*StatusCode[^>]*Value=["']([^"']+)["'][^>]*>/g;
+    var match;
+    while ((match = statusCodeRegex.exec(xml)) !== null) {
+      codes.push(match[1].split(':').pop());
+    }
+
+    var messageMatch = xml.match(/<[^>]*StatusMessage[^>]*>([^<]*)<\/[^>]*StatusMessage>/);
+    return {
+      present: true,
+      statusCodes: codes,
+      statusMessage: messageMatch ? messageMatch[1].slice(0, 200) : '',
+    };
+  } catch (error) {
+    return {
+      present: true,
+      parseError: error && error.message ? error.message : String(error),
+    };
+  }
+}
+
+function summarizeError(error) {
+  if (!error) return {};
+  return {
+    name: error.name,
+    message: safeErrorMessage(error),
+  };
+}
+
+function safeErrorMessage(error) {
+  var message = error && error.message ? error.message : String(error || '');
+  return message.slice(0, 300);
 }
 
 function buildUserClaims(profile, names) {
