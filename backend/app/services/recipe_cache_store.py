@@ -180,6 +180,35 @@ def _ensure_schema_sqlite(conn) -> None:
             team TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS recipe_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_name TEXT NOT NULL DEFAULT '',
+            actor_team TEXT NOT NULL DEFAULT '',
+            from_eqp_id TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL DEFAULT '',
+            to_eqp_id TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            item_kind TEXT NOT NULL DEFAULT '',
+            source_name TEXT NOT NULL DEFAULT '',
+            target_name TEXT NOT NULL DEFAULT '',
+            recipe_name TEXT NOT NULL DEFAULT '',
+            request_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'ok',
+            reason TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            knoxid TEXT NOT NULL DEFAULT '',
+            from_eqp_team TEXT NOT NULL DEFAULT '',
+            to_eqp_team TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_recipe_history_created ON recipe_history (created_at);
+
+        CREATE TABLE IF NOT EXISTS recipe_history_comments (
+            group_key TEXT PRIMARY KEY,
+            comment TEXT NOT NULL DEFAULT '',
+            comment_author TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
         """
     )
     existing_cols = {str(row['name']) for row in conn.execute("PRAGMA table_info(equipment_inventory)").fetchall()}
@@ -267,6 +296,37 @@ def _ensure_schema_postgres(conn) -> None:
             line TEXT NOT NULL DEFAULT '',
             team TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS recipe_history (
+            id BIGSERIAL PRIMARY KEY,
+            actor_name TEXT NOT NULL DEFAULT '',
+            actor_team TEXT NOT NULL DEFAULT '',
+            from_eqp_id TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL DEFAULT '',
+            to_eqp_id TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            item_kind TEXT NOT NULL DEFAULT '',
+            source_name TEXT NOT NULL DEFAULT '',
+            target_name TEXT NOT NULL DEFAULT '',
+            recipe_name TEXT NOT NULL DEFAULT '',
+            request_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'ok',
+            reason TEXT NOT NULL DEFAULT '',
+            detail TEXT NOT NULL DEFAULT '',
+            knoxid TEXT NOT NULL DEFAULT '',
+            from_eqp_team TEXT NOT NULL DEFAULT '',
+            to_eqp_team TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_recipe_history_created ON recipe_history (created_at)",
+        """
+        CREATE TABLE IF NOT EXISTS recipe_history_comments (
+            group_key TEXT PRIMARY KEY,
+            comment TEXT NOT NULL DEFAULT '',
+            comment_author TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
         )
         """,
     ]
@@ -847,6 +907,138 @@ def save_user_preferences(login_id: str, line: str, team: str) -> None:
                 """),
                 (login_id, line or '', team or '', ts),
             )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+# ── History ────────────────────────────────────────────────────────────────────
+
+def _history_row_to_dict(row: Any) -> dict[str, Any]:
+    return {
+        'actorName':   str(row['actor_name']    or ''),
+        'actorTeam':   str(row['actor_team']    or ''),
+        'fromEqpId':   str(row['from_eqp_id']   or ''),
+        'action':      str(row['action']         or ''),
+        'toEqpId':     str(row['to_eqp_id']     or ''),
+        'createdAt':   str(row['created_at']    or ''),
+        'itemKind':    str(row['item_kind']     or ''),
+        'sourceName':  str(row['source_name']   or ''),
+        'targetName':  str(row['target_name']   or ''),
+        'recipeName':  str(row['recipe_name']   or ''),
+        'requestId':   str(row['request_id']    or ''),
+        'status':      str(row['status']         or 'ok'),
+        'reason':      str(row['reason']         or ''),
+        'detail':      str(row['detail']         or ''),
+        'knoxid':      str(row['knoxid']         or ''),
+        'fromEqpTeam': str(row['from_eqp_team'] or ''),
+        'toEqpTeam':   str(row['to_eqp_team']   or ''),
+    }
+
+
+def insert_history_entry(entry: dict[str, Any]) -> None:
+    ensure_schema()
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _begin(conn)
+            conn.execute(
+                _sql("""
+                INSERT INTO recipe_history
+                (actor_name, actor_team, from_eqp_id, action, to_eqp_id, created_at,
+                 item_kind, source_name, target_name, recipe_name, request_id,
+                 status, reason, detail, knoxid, from_eqp_team, to_eqp_team)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """),
+                (
+                    str(entry.get('actorName')   or ''),
+                    str(entry.get('actorTeam')   or ''),
+                    str(entry.get('fromEqpId')   or ''),
+                    str(entry.get('action')       or ''),
+                    str(entry.get('toEqpId')     or ''),
+                    str(entry.get('createdAt')   or now_ts()),
+                    str(entry.get('itemKind')    or ''),
+                    str(entry.get('sourceName')  or ''),
+                    str(entry.get('targetName')  or ''),
+                    str(entry.get('recipeName')  or ''),
+                    str(entry.get('requestId')   or ''),
+                    str(entry.get('status')       or 'ok'),
+                    str(entry.get('reason')       or ''),
+                    str(entry.get('detail')       or ''),
+                    str(entry.get('knoxid')       or ''),
+                    str(entry.get('fromEqpTeam') or ''),
+                    str(entry.get('toEqpTeam')   or ''),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def list_history_entries_db(limit: int = 500) -> list[dict[str, Any]]:
+    ensure_schema()
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            _sql('SELECT * FROM recipe_history ORDER BY created_at DESC LIMIT ?'),
+            (max(1, min(int(limit or 500), 5000)),),
+        ).fetchall()
+        return [_history_row_to_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+# ── History Comments ───────────────────────────────────────────────────────────
+
+def get_all_history_comments() -> dict[str, Any]:
+    ensure_schema()
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            'SELECT group_key, comment, comment_author, updated_at FROM recipe_history_comments'
+        ).fetchall()
+        return {
+            str(row['group_key']): {
+                'comment':       str(row['comment']        or ''),
+                'commentAuthor': str(row['comment_author'] or ''),
+                'updatedAt':     str(row['updated_at']     or ''),
+            }
+            for row in rows
+        }
+    finally:
+        conn.close()
+
+
+def set_history_comment(group_key: str, comment: str, comment_author: str = '') -> None:
+    ensure_schema()
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _begin(conn)
+            if comment:
+                if _USE_POSTGRES:
+                    conn.execute(
+                        """
+                        INSERT INTO recipe_history_comments (group_key, comment, comment_author, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (group_key) DO UPDATE SET
+                          comment=EXCLUDED.comment,
+                          comment_author=EXCLUDED.comment_author,
+                          updated_at=EXCLUDED.updated_at
+                        """,
+                        (group_key, comment, comment_author, now_ts()),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO recipe_history_comments
+                        (group_key, comment, comment_author, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (group_key, comment, comment_author, now_ts()),
+                    )
+            else:
+                conn.execute(_sql('DELETE FROM recipe_history_comments WHERE group_key=?'), (group_key,))
             conn.commit()
         finally:
             conn.close()
