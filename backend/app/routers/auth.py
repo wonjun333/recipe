@@ -87,6 +87,23 @@ def _enrich_auth_payload(payload: dict) -> dict:
     return enriched
 
 
+def get_actor_from_request(request: Request) -> tuple[str, str]:
+    """JWT 쿠키에서 (actor_name, actor_team) 추출. 실패 시 ('', '') 반환."""
+    if AUTH_MODE != "saml":
+        return _MOCK_USER.get("Username", ""), _MOCK_USER.get("DeptName", "")
+    try:
+        auth_token = request.cookies.get(AUTH_COOKIE_NAME, "")
+        if not auth_token:
+            return "", ""
+        cert_pem = Path(JWT_CERT_PATH).read_text(encoding="utf-8")
+        public_key = load_pem_x509_certificate(cert_pem.encode("utf-8")).public_key()
+        payload = jwt.decode(auth_token, public_key, algorithms=["RS256"])
+        payload = _enrich_auth_payload(payload)
+        return _clean_text(payload.get("Username")), _clean_text(payload.get("DeptName"))
+    except Exception:
+        return "", ""
+
+
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
 

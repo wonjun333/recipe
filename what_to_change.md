@@ -225,9 +225,7 @@ systemctl status nginx    # active (running) 확인
 ### 6-3. 로그 확인
 
 ```bash
-tail -f ~/project/recipe/backend/logs/backend.log   # FastAPI
-tail -f ~/project/recipe/backend/logs/saml.log      # Node.js SAML
-tail -f ~/project/recipe/backend/logs/worker.log    # 워커
+tail -f ~/project/recipe/backend/logs/backend.log ~/project/recipe/backend/logs/saml.log
 ```
 
 ### 6-4. 브라우저 테스트 순서
@@ -241,16 +239,30 @@ tail -f ~/project/recipe/backend/logs/worker.log    # 워커
 3. AD 로그인 완료 → TopBar에 실제 이름/부서 표시 확인
 4. **F12 → Network** 탭에서 `/api/auth/me` 응답이 200이고 `Username`, `DeptName` 포함 확인
 
-### 6-5. 코드 변경 후 재배포
+### 6-5. 코드 변경 후 재빌드/재배포
+
+**프론트엔드 코드만 바꿨을 때 (가장 흔한 경우)**
+
+```bash
+cd ~/project/recipe/frontend && npm run build
+```
+
+끝. nginx 재시작 불필요. 브라우저에서 **Ctrl+Shift+R** 강제 새로고침.
+
+**백엔드 코드만 바꿨을 때**
+
+```bash
+cd ~/project/recipe && ./restart.sh
+```
+
+**전체 재배포 (git pull 포함)**
 
 ```bash
 cd ~/project/recipe
 git pull
-pip install -r backend/requirements.txt          # 의존성 변경 시
-cd frontend && npm install && npm run build && cd ..  # 프론트 변경 시
-fuser -k 8282/tcp 2>/dev/null; true
+cd frontend && npm run build && cd ..            # 프론트 변경분 있을 때
+pip install -r backend/requirements.txt          # requirements.txt 변경 시
 ./restart.sh
-systemctl restart nginx
 ```
 
 ### 6-6. 트러블슈팅 빠른 참조
@@ -282,11 +294,10 @@ systemctl restart nginx
 
 ## 8. 요약
 
-| 단계 | 명령 | 시점 |
-|---|---|---|
-| 코드 동기화 | `git pull` | 항상 |
-| Python 의존성 | `pip install -r backend/requirements.txt` | `requirements.txt` 변경 시 |
-| 프론트 빌드 | `cd frontend && npm run build && cd ..` | 프론트 코드 변경 시 |
-| 서비스 시작 | `./restart.sh` → `systemctl start nginx` | 항상 |
-| 포트 충돌 해제 | `fuser -k 8282/tcp` | nginx 시작 실패 시 |
-| 브라우저 초기화 | F12 콘솔 → `sessionStorage.clear()` | 인증 루프 문제 시 |
+| 상황 | 명령 |
+|---|---|
+| 프론트만 변경 | `cd frontend && npm run build` → Ctrl+Shift+R |
+| 백엔드만 변경 | `./restart.sh` |
+| 전체 재배포 | `git pull` → (필요시 빌드/pip) → `./restart.sh` |
+| 포트 충돌 | `fuser -k 8282/tcp` → `systemctl start nginx` |
+| 인증 루프 | F12 콘솔 → `sessionStorage.clear()` |
