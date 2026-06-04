@@ -179,116 +179,112 @@ server {
 
 ## 5. 실행
 
-Node 패키지:
-
 ```bash
-cd Nodejs_SAML
-npm install
-```
+# Node 의존성 (최초 1회 또는 package.json 변경 시)
+cd ~/project/recipe/Nodejs_SAML && npm install --omit=dev && cd ..
 
-`jsonwebtoken` 오류가 나면 `Nodejs_SAML` 의존성이 설치되지 않은 것이다.
+# Python 의존성 (requirements.txt 변경 시)
+pip install -r ~/project/recipe/backend/requirements.txt
 
-```bash
-cd Nodejs_SAML
-npm install --omit=dev
-```
-
-Python 패키지:
-
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-SAML 서버:
-
-```bash
-cd Nodejs_SAML
-npm start
-```
-
-전체 스크립트:
-
-```bash
+# 전체 서비스 시작 (8000 backend + 9000 SAML + worker)
+cd ~/project/recipe
 ./restart.sh
+systemctl start nginx
 ```
 
-`restart.sh`는 이제 `8000`, `9000`만 관리한다.
-`8282` 프론트/reverse proxy는 별도 관리한다.
-스크립트 내부에서 backend와 worker는 `PYTHONPATH=.`로 실행하고, `Nodejs_SAML/node_modules/jsonwebtoken`이 없으면 `npm install --omit=dev`를 먼저 수행한다.
+`restart.sh`는 `8000`, `9000`, worker를 백그라운드로 올린다. nginx(8282)는 별도 `systemctl`로 관리한다.
 
 ---
 
-## 6. 테스트
+## 6. 서비스 시작 및 테스트 절차
 
-1. 브라우저에서 접속
+### 6-1. 포트 확인 및 해제
 
-```text
-https://10.173.131.184:8282/login
+nginx가 뜨지 않으면 8282 포트를 다른 프로세스가 점유한 것이다.
+
+```bash
+ss -tlnp | grep -E '8000|8282|9000'   # 각 포트 점유 확인
+fuser -k 8282/tcp                       # 8282 강제 해제
 ```
 
-2. AD 로그인 완료
-3. 브라우저 개발자 도구에서 `auth_token` 쿠키 생성 확인
-4. 프론트 메인 화면 접속
-5. TopBar 사용자 이름이 `개발자`가 아니라 AD claim의 `Username` 또는 `LoginId`인지 확인
-6. `/api/auth/me` 응답이 실제 AD 사용자 payload인지 확인
+### 6-2. 시작 순서
+
+```bash
+cd ~/project/recipe
+
+# 1. backend(8000) + SAML(9000) + worker 시작
+./restart.sh
+
+# 2. nginx(8282) 시작
+systemctl start nginx
+systemctl status nginx    # active (running) 확인
+```
+
+### 6-3. 로그 확인
+
+```bash
+tail -f ~/project/recipe/backend/logs/backend.log   # FastAPI
+tail -f ~/project/recipe/backend/logs/saml.log      # Node.js SAML
+tail -f ~/project/recipe/backend/logs/worker.log    # 워커
+```
+
+### 6-4. 브라우저 테스트 순서
+
+1. **F12 → Console** 탭에서 이전 세션 데이터 초기화:
+   ```js
+   sessionStorage.clear()
+   document.cookie = 'auth_token=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/'
+   ```
+2. `https://10.173.131.184:8282` 접속 → 자동으로 SAML 로그인 페이지로 이동
+3. AD 로그인 완료 → TopBar에 실제 이름/부서 표시 확인
+4. **F12 → Network** 탭에서 `/api/auth/me` 응답이 200이고 `Username`, `DeptName` 포함 확인
+
+### 6-5. 코드 변경 후 재배포
+
+```bash
+cd ~/project/recipe
+git pull
+pip install -r backend/requirements.txt          # 의존성 변경 시
+cd frontend && npm install && npm run build && cd ..  # 프론트 변경 시
+fuser -k 8282/tcp 2>/dev/null; true
+./restart.sh
+systemctl restart nginx
+```
+
+### 6-6. 트러블슈팅 빠른 참조
+
+| 증상 | 확인 명령 |
+|---|---|
+| nginx 시작 실패 | `nginx 2>&1` → 포트 충돌이면 `fuser -k 8282/tcp` |
+| TopBar가 `개발자` | `backend/.env`에 `AUTH_MODE=saml` 확인, FastAPI 재시작 |
+| `/api/auth/me` 401 | `saml.log` 확인, `python -c "from cryptography.x509 import load_pem_x509_certificate"` |
+| SAML 서버 미시작 | `tail saml.log`, `jsonwebtoken` 없으면 `cd Nodejs_SAML && npm install --omit=dev` |
+| 인증 후 루프 | 브라우저 콘솔에서 `sessionStorage.clear()` 실행 |
 
 ---
 
-## 7. 문제 확인
+## 7. 터미널 구성
 
-### TopBar가 계속 `개발자`로 보임
+`./restart.sh`는 모든 서비스를 백그라운드(`&`)로 실행하므로 터미널 1개로 충분하다.
+로그를 동시에 보려면 터미널 2개를 권장한다.
 
-확인:
+| 터미널 | 역할 | 명령 예시 |
+|---|---|---|
+| 터미널 1 | 시작 / 배포 / 명령 | `./restart.sh`, `systemctl start nginx`, `git pull` |
+| 터미널 2 | 로그 모니터링 | `tail -f backend/logs/backend.log backend/logs/saml.log` |
 
-- `backend/.env`에 `AUTH_MODE=saml`인지
-- FastAPI를 재시작했는지
-- `/api/auth/me` 응답이 200인지
-- `auth_token` 쿠키가 요청에 포함되는지
+`./restart.sh`가 멈춰 보이면 터미널 2에서 `ss -tlnp | grep -E '8000|9000'` 확인.
+포트가 올라왔으면 정상이며 내부적으로 SAML `npm install` 대기 중인 것이다. 60초 후 완료된다.
 
-### `/api/auth/me`가 401
+---
 
-확인:
+## 8. 요약
 
-- `auth_token` 쿠키가 있는지
-- `AUTH_COOKIE_NAME`이 Nodejs_SAML과 backend에서 같은지
-- `JWT_CERT_PATH`가 `JWT_SIGNING_KEY_PATH`와 짝이 맞는 public cert인지
-- JWT가 만료되지 않았는지
-
-### AD 로그인 후 프론트로 돌아오지 않음
-
-확인:
-
-- `POST /`가 `9000/`으로 전달되는지
-- `FRONTEND_URL=https://10.173.131.184:8282/`인지
-- SAML 서버 로그 `backend/logs/saml.log`에 `SAML user:`가 찍히는지
-
-### SAML 서버가 시작하지 않음
-
-확인:
-
-```bash
-lsof -ti :9000
-tail -f backend/logs/saml.log
-```
-
-`Cannot find module 'jsonwebtoken'`이면:
-
-```bash
-cd Nodejs_SAML
-npm install --omit=dev
-```
-
-그 다음 재시작한다.
-
-### worker.log에 `No module named 'app'`
-
-worker 실행 시 Python import root가 잘못 잡힌 것이다.
-현재 `restart.sh`는 아래처럼 `PYTHONPATH=.`를 붙여 실행하도록 수정되어 있다.
-
-```bash
-cd backend
-PYTHONPATH=. python tools/recipe_inventory_worker.py ...
-```
-
-서버에 최신 `restart.sh`가 반영되어 있는지 확인한다.
+| 단계 | 명령 | 시점 |
+|---|---|---|
+| 코드 동기화 | `git pull` | 항상 |
+| Python 의존성 | `pip install -r backend/requirements.txt` | `requirements.txt` 변경 시 |
+| 프론트 빌드 | `cd frontend && npm run build && cd ..` | 프론트 코드 변경 시 |
+| 서비스 시작 | `./restart.sh` → `systemctl start nginx` | 항상 |
+| 포트 충돌 해제 | `fuser -k 8282/tcp` | nginx 시작 실패 시 |
+| 브라우저 초기화 | F12 콘솔 → `sessionStorage.clear()` | 인증 루프 문제 시 |
