@@ -4160,7 +4160,16 @@ async function load(keepRecipePanel:boolean){
 }
 
 onMounted(async () => {
-  try { actorName.value = window.localStorage.getItem('recipe_test_actor_name') || '' } catch {}
+  try {
+    const authRes = await fetch('/api/auth/me', { credentials: 'include' })
+    if (authRes.ok) {
+      const user = await authRes.json()
+      actorName.value = String(user.Username || user.LoginId || '')
+    }
+  } catch {}
+  if (!actorName.value) {
+    try { actorName.value = window.localStorage.getItem('recipe_test_actor_name') || '' } catch {}
+  }
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('click', onGlobalClickCapture, true)
   window.addEventListener('resize', updateCartOverlayPos)

@@ -97,6 +97,8 @@ AUTH_COOKIE_NAME=auth_token
 JWT_CERT_PATH=../Nodejs_SAML/cert/cert.pem
 ```
 
+상대경로는 uvicorn CWD(`backend/`) 기준이다. `restart.sh`가 `cd backend/` 후 uvicorn을 실행하므로 `../Nodejs_SAML/cert/cert.pem` → `backend/../Nodejs_SAML/cert/cert.pem`으로 올바르게 resolve된다.
+
 기존 DB mock 여부는 별도다.
 
 ```env

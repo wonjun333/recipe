@@ -163,11 +163,20 @@
                 />
               </template>
               <template v-else>
-                <span
-                  class="comment-text"
-                  :class="{ 'comment-empty': !commentMap[group.key]?.comment }"
-                  :title="commentMap[group.key]?.commentAuthor ? `작성자: ${commentMap[group.key].commentAuthor}` : undefined"
-                >{{ commentMap[group.key]?.comment || '' }}</span>
+                <div
+                  class="comment-wrap"
+                  @mouseenter="hoveredCommentKey = group.key"
+                  @mouseleave="hoveredCommentKey = null"
+                >
+                  <span
+                    class="comment-text"
+                    :class="{ 'comment-empty': !commentMap[group.key]?.comment }"
+                  >{{ commentMap[group.key]?.comment || '' }}</span>
+                  <div
+                    v-if="hoveredCommentKey === group.key && commentMap[group.key]?.commentAuthor"
+                    class="comment-author-tooltip"
+                  >{{ commentMap[group.key].commentAuthor }}</div>
+                </div>
               </template>
             </td>
           </tr>
@@ -204,6 +213,8 @@ const commentMap = ref<Record<string, HistoryComment>>({})
 const editingCommentKey = ref<string | null>(null)
 const editingCommentValue = ref('')
 const commentInputRefs: Record<string, HTMLInputElement> = {}
+const hoveredCommentKey = ref<string | null>(null)
+const currentMailPrefix = ref('')
 const expandedRecipeKeys = ref<Set<string>>(new Set())
 const expandedDetailKeys = ref<Set<string>>(new Set())
 const openRangeFilterId = ref<number | null>(null)
@@ -272,9 +283,9 @@ async function saveComment(key: string) {
   const comment = editingCommentValue.value.trim()
   editingCommentKey.value = null
   try {
-    await recipeTestApi.putHistoryComment(key, comment)
+    await recipeTestApi.putHistoryComment(key, comment, currentMailPrefix.value)
     if (comment) {
-      commentMap.value = { ...commentMap.value, [key]: { comment, commentAuthor: commentMap.value[key]?.commentAuthor ?? '', updatedAt: '' } }
+      commentMap.value = { ...commentMap.value, [key]: { comment, commentAuthor: currentMailPrefix.value || commentMap.value[key]?.commentAuthor || '', updatedAt: '' } }
     } else {
       const next = { ...commentMap.value }
       delete next[key]
@@ -387,7 +398,18 @@ function onWindowClick(ev: MouseEvent) {
     expandedDetailKeys.value = new Set()
   }
 }
-onMounted(() => { loadHistory(); window.addEventListener('click', onWindowClick) })
+onMounted(async () => {
+  loadHistory()
+  window.addEventListener('click', onWindowClick)
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include' })
+    if (res.ok) {
+      const user = await res.json()
+      const mail = String(user.MailAccount || user.Mail || '')
+      currentMailPrefix.value = mail.includes('@') ? mail.split('@')[0] : mail
+    }
+  } catch {}
+})
 onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 </script>
 
@@ -443,10 +465,13 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-relation { color: #64748b; font-weight: 700; font-size: 11px; }
 .detail-more { color: #6b7280; font-size: 11px; }
 .warn-icon, .to-fail-icon, .detail-fail { color: #dc2626; font-weight: 700; }
-.comment-th { min-width: 160px; width: 200px; }
-.comment-td { min-width: 160px; cursor: text; vertical-align: middle; }
+.comment-th { min-width: 260px; width: 320px; }
+.comment-td { min-width: 260px; cursor: text; vertical-align: middle; }
+.comment-wrap { position: relative; display: inline-block; width: 100%; }
 .comment-text { display: block; white-space: pre-wrap; word-break: break-word; min-height: 20px; line-height: 1.5; color: #1e293b; }
 .comment-empty::after { content: ''; display: block; min-height: 20px; }
+.comment-author-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; background: #1e293b; color: #f1f5f9; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 30; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.comment-author-tooltip::after { content: ''; position: absolute; top: 100%; left: 12px; border: 5px solid transparent; border-top-color: #1e293b; }
 .comment-input { width: 100%; box-sizing: border-box; border: 1px solid #6366f1; border-radius: 6px; padding: 5px 8px; font-size: inherit; font-family: inherit; outline: none; background: #f8f8ff; }
 .comment-input:focus { box-shadow: 0 0 0 2px #c7d2fe; }
 </style>
