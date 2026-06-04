@@ -33,7 +33,6 @@ onMounted(async () => {
     const res = await fetch('/api/auth/me', { credentials: 'include' })
     if (res.status === 401) {
       if (cameFromSaml) {
-        sessionStorage.removeItem('samlLoginRedirected')
         removeSamlCallbackParam(params)
         return
       }

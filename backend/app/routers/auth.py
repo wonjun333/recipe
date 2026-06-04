@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import jwt
+from cryptography.x509 import load_pem_x509_certificate
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -29,7 +30,7 @@ def get_me(request: Request):
 
     auth_token = request.cookies.get(AUTH_COOKIE_NAME)
     if not auth_token:
-        logger.info(
+        logger.warning(
             "SAML auth failed: cookie missing cookie_name=%s received_cookies=%s",
             AUTH_COOKIE_NAME,
             sorted(request.cookies.keys()),
@@ -39,7 +40,8 @@ def get_me(request: Request):
     try:
         cert_path = Path(JWT_CERT_PATH)
         cert_pem = cert_path.read_text(encoding="utf-8")
-        payload = jwt.decode(auth_token, cert_pem, algorithms=["RS256"])
+        public_key = load_pem_x509_certificate(cert_pem.encode("utf-8")).public_key()
+        payload = jwt.decode(auth_token, public_key, algorithms=["RS256"])
         payload = _enrich_auth_payload(payload)
         logger.info(
             "SAML auth succeeded: login_id=%s username=%s token_length=%s cert_path=%s",
@@ -50,7 +52,7 @@ def get_me(request: Request):
         )
         return payload
     except Exception as exc:
-        logger.info(
+        logger.warning(
             "SAML auth failed: invalid token error=%s token_length=%s cert_path=%s",
             exc.__class__.__name__,
             len(auth_token),

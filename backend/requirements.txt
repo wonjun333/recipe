@@ -8,4 +8,4 @@ cachetools
 python-dotenv
 httpx
 pytest
-PyJWT
+PyJWT[crypto]
