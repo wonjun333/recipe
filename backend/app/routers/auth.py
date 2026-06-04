@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 
 import jwt
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 
 from app.config import AUTH_COOKIE_NAME, AUTH_MODE, JWT_CERT_PATH
 
@@ -33,7 +34,7 @@ def get_me(request: Request):
             AUTH_COOKIE_NAME,
             sorted(request.cookies.keys()),
         )
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        return _unauthorized("Not authenticated")
 
     try:
         cert_path = Path(JWT_CERT_PATH)
@@ -55,7 +56,7 @@ def get_me(request: Request):
             len(auth_token),
             JWT_CERT_PATH,
         )
-        raise HTTPException(status_code=401, detail="Invalid token") from exc
+        return _unauthorized("Invalid token", clear_cookie=True)
 
 
 @router.post("/api/auth/logout")
@@ -86,3 +87,10 @@ def _enrich_auth_payload(payload: dict) -> dict:
 
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _unauthorized(detail: str, clear_cookie: bool = False) -> JSONResponse:
+    response = JSONResponse(status_code=401, content={"detail": detail})
+    if clear_cookie:
+        response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return response

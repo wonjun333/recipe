@@ -23,25 +23,42 @@ interface AuthUser {
 }
 
 const currentUser = ref<AuthUser | null>(null)
+const samlCallbackParam = 'saml'
+const samlCallbackValue = 'callback'
 
 onMounted(async () => {
   try {
+    const params = new URLSearchParams(window.location.search)
+    const cameFromSaml = params.get(samlCallbackParam) === samlCallbackValue
     const res = await fetch('/api/auth/me', { credentials: 'include' })
     if (res.status === 401) {
+      if (cameFromSaml) {
+        sessionStorage.removeItem('samlLoginRedirected')
+        removeSamlCallbackParam(params)
+        return
+      }
       if (sessionStorage.getItem('samlLoginRedirected') !== '1') {
         sessionStorage.setItem('samlLoginRedirected', '1')
-        window.location.href = '/login'
+        window.location.replace('/login')
       }
       return
     }
     if (res.ok) {
       currentUser.value = await res.json()
       sessionStorage.removeItem('samlLoginRedirected')
+      if (cameFromSaml) removeSamlCallbackParam(params)
     }
   } catch {
     // 네트워크 오류 시 그냥 미인증 상태 유지
   }
 })
+
+function removeSamlCallbackParam(params: URLSearchParams) {
+  params.delete(samlCallbackParam)
+  const query = params.toString()
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+  window.history.replaceState({}, '', nextUrl)
+}
 </script>
 
 <style scoped>
