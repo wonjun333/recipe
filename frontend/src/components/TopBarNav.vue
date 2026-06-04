@@ -9,7 +9,7 @@
 
     <nav class="nav-right">
       <RouterLink to="/history" class="nav-item">My History</RouterLink>
-      <div class="user-menu">
+      <div class="user-menu" ref="userMenuEl">
         <button
           class="avatar-btn"
           type="button"
@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
 interface AuthUser {
@@ -60,6 +60,15 @@ interface AuthUser {
 
 const props = defineProps<{ user: AuthUser | null }>()
 const menuOpen = ref(false)
+const userMenuEl = ref<HTMLElement | null>(null)
+
+function onOutsideClick(e: MouseEvent) {
+  if (menuOpen.value && userMenuEl.value && !userMenuEl.value.contains(e.target as Node)) {
+    menuOpen.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', onOutsideClick, true))
+onBeforeUnmount(() => document.removeEventListener('click', onOutsideClick, true))
 
 const avatarLetter = computed(() => {
   const seed = props.user?.Username || props.user?.LoginId || ''
