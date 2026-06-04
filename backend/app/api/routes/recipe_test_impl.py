@@ -33,7 +33,7 @@ from app.services.file_ops_service import (
 from app.services.recipe_preview_service import build_recipe_preview_from_bytes, build_source_recipe_preview, create_no_preview_recipe
 from app.services.temp_file_store import LOCAL_EDIT_BASE, write_local_shadow_file as svc_write_local_shadow_file
 from app.services.history_service import append_history_entry, list_history_entries
-from app.routers.auth import get_actor_from_request, get_user_from_request
+from app.routers.auth import get_user_from_request
 from app.services.history_comment_store import get_all_comments, set_comment as set_history_comment
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
 from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
@@ -82,13 +82,15 @@ def now_history_ts() -> str:
 def record_history(
     action: str,
     actor_name: str,
-    actor_team: str,
     from_eqp_id: str,
     to_eqp_id: str,
     item_kind: str,
     source_name: str,
     target_name: str,
     *,
+    knoxid: str = '',
+    from_eqp_team: str = '',
+    to_eqp_team: str = '',
     status: str = 'ok',
     reason: str = '',
     created_at: str | None = None,
@@ -100,7 +102,7 @@ def record_history(
     tgt = str(target_name or '').strip()
     append_history_entry(
         actorName=str(actor_name or '').strip() or 'Unknown',
-        actorTeam=str(actor_team or '').strip(),
+        actorTeam=str(from_eqp_team or '').strip(),
         fromEqpId=str(from_eqp_id or '').strip(),
         action=str(action or '').strip(),
         toEqpId=str(to_eqp_id or '').strip(),
@@ -113,6 +115,9 @@ def record_history(
         status=str(status or '').strip() or 'ok',
         reason=str(reason or '').strip(),
         detail=str(detail or '').strip(),
+        knoxid=str(knoxid or '').strip(),
+        fromEqpTeam=str(from_eqp_team or '').strip(),
+        toEqpTeam=str(to_eqp_team or '').strip(),
     )
 
 
@@ -2036,7 +2041,9 @@ def save_cas(req: SaveCasRequest):
 
 @router.post("/cas/persist")
 def persist_cas(req: PersistCasRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         target_name = normalize_saved_cas_name(req.targetCasId)
@@ -2063,7 +2070,7 @@ def persist_cas(req: PersistCasRequest, request: Request):
         }
         action_name = 'Edit' if target_name == source_name else 'Save As'
         detail = summarize_cas_slot_changes(original_slots, req.slots) if action_name == 'Edit' else f'{source_name} → {target_name}'
-        record_history(action_name, actor_name or req.actorName, actor_team or req.actorTeam, req.eqpId, req.eqpId, 'cas', source_name, target_name, created_at=request_time, recipe_name=target_name if action_name == 'Save As' else source_name, detail=detail)
+        record_history(action_name, actor_name, req.eqpId, req.eqpId, 'cas', source_name, target_name, knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam, created_at=request_time, recipe_name=target_name if action_name == 'Save As' else source_name, detail=detail)
         return {"status": "saved_to_ftp", "savedAs": target_name, "targetPath": target_path}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2093,7 +2100,9 @@ def save_job(req: SaveJobRequest):
 
 @router.post("/job/persist")
 def persist_job(req: PersistJobRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         bootstrap = get_or_bootstrap_eqp(req.eqpId)
@@ -2122,7 +2131,7 @@ def persist_job(req: PersistJobRequest, request: Request):
         }
         action_name = 'Edit' if target_name == source_name else 'Save As'
         detail = summarize_job_changes(original_parsed, req.parsed) if action_name == 'Edit' else f'{source_name} → {target_name}'
-        record_history(action_name, actor_name or req.actorName, actor_team or req.actorTeam, req.eqpId, req.eqpId, 'job', source_name, target_name, created_at=request_time, recipe_name=target_name if action_name == 'Save As' else source_name, detail=detail)
+        record_history(action_name, actor_name, req.eqpId, req.eqpId, 'job', source_name, target_name, knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam, created_at=request_time, recipe_name=target_name if action_name == 'Save As' else source_name, detail=detail)
         return {
             "status": "saved_to_ftp",
             "savedAs": target_name,
@@ -2135,7 +2144,9 @@ def persist_job(req: PersistJobRequest, request: Request):
 
 @router.post('/recipe/clone')
 def clone_recipe(req: PersistRecipeRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         source_kind = str(req.sourceKind or 'recipe')
@@ -2145,7 +2156,7 @@ def clone_recipe(req: PersistRecipeRequest, request: Request):
         target_name = normalize_saved_recipe_name(source_name, req.targetRecipeName)
         target_path = resolve_item_path(req.eqpId, 'recipe', source_kind)
         result = ftp_copy_with_shadow(req.eqpId, target_path, source_name, req.eqpId, target_path, target_name)
-        record_history('Save As', actor_name or req.actorName, actor_team or req.actorTeam, req.eqpId, req.eqpId, 'recipe', source_name, target_name, created_at=request_time, recipe_name=target_name, detail=f'{source_name} → {target_name}')
+        record_history('Save As', actor_name, req.eqpId, req.eqpId, 'recipe', source_name, target_name, knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam, created_at=request_time, recipe_name=target_name, detail=f'{source_name} → {target_name}')
         return {
             'status': 'saved_to_ftp',
             'savedAs': target_name,
@@ -2158,11 +2169,13 @@ def clone_recipe(req: PersistRecipeRequest, request: Request):
 
 @router.post('/file/rename')
 def rename_file(req: RenameFileRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         result = rename_item_on_ftp(req)
-        record_history('Rename', actor_name or req.actorName, actor_team or req.actorTeam, req.eqpId, req.eqpId, req.kind, req.sourceName, result.get('name', req.targetName), created_at=request_time, recipe_name=result.get('name', req.targetName), detail=f'{req.sourceName} → {result.get("name", req.targetName)}')
+        record_history('Rename', actor_name, req.eqpId, req.eqpId, req.kind, req.sourceName, result.get('name', req.targetName), knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam, created_at=request_time, recipe_name=result.get('name', req.targetName), detail=f'{req.sourceName} → {result.get("name", req.targetName)}')
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=format_ftp_error(e))
@@ -2170,7 +2183,9 @@ def rename_file(req: RenameFileRequest, request: Request):
 
 @router.post('/file/delete')
 def delete_files(req: DeleteFilesRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         deleted = []
@@ -2179,7 +2194,7 @@ def delete_files(req: DeleteFilesRequest, request: Request):
             try:
                 deleted_item = delete_item_on_ftp(req.eqpId, item)
                 deleted.append(deleted_item)
-                record_history('Delete', actor_name or req.actorName, actor_team or req.actorTeam, req.eqpId, '', item.kind, item.name, '', created_at=request_time, recipe_name=item.name)
+                record_history('Delete', actor_name, req.eqpId, '', item.kind, item.name, '', knoxid=knoxid, from_eqp_team=req.actorTeam, created_at=request_time, recipe_name=item.name)
             except Exception as e:
                 failed.append({'kind': item.kind, 'name': item.name, 'reason': format_ftp_error(e)})
         status = 'ok' if deleted and not failed else ('partial' if deleted else 'failed')
@@ -2190,7 +2205,9 @@ def delete_files(req: DeleteFilesRequest, request: Request):
 
 @router.post('/transfer')
 def transfer_files(req: TransferRequest, request: Request):
-    actor_name, actor_team = get_actor_from_request(request)
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     request_time = now_history_ts()
     try:
         validate_transfer_scope(req.items, req.targetEqpIds)
@@ -2201,7 +2218,7 @@ def transfer_files(req: TransferRequest, request: Request):
                 try:
                     moved_item = copy_file_between_eqp(item, target_eqp_id)
                     moved.append(moved_item)
-                    record_history('Transfer', actor_name or req.actorName, actor_team or req.actorTeam, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, created_at=request_time, recipe_name=item.name)
+                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, created_at=request_time, recipe_name=item.name)
                 except Exception as e:
                     reason = format_ftp_error(e)
                     failed.append({
@@ -2211,7 +2228,7 @@ def transfer_files(req: TransferRequest, request: Request):
                         'sourceEqpId': item.sourceEqpId,
                         'reason': reason,
                     })
-                    record_history('Transfer', actor_name or req.actorName, actor_team or req.actorTeam, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, status='failed', reason=reason, created_at=request_time, recipe_name=item.name)
+                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, status='failed', reason=reason, created_at=request_time, recipe_name=item.name)
         status = 'ok' if moved and not failed else ('partial' if moved else 'failed')
         return {'status': status, 'moved': moved, 'failed': failed}
     except Exception as e:

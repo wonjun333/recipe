@@ -73,7 +73,6 @@
         <thead>
           <tr>
             <th>이름</th>
-            <th>분임조</th>
             <th>From 설비</th>
             <th>Action</th>
             <th>To 설비</th>
@@ -85,22 +84,28 @@
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="9" class="empty-row">Loading...</td>
+            <td colspan="8" class="empty-row">Loading...</td>
           </tr>
           <tr v-else-if="groupedItems.length === 0">
-            <td colspan="9" class="empty-row">이력이 없습니다.</td>
+            <td colspan="8" class="empty-row">이력이 없습니다.</td>
           </tr>
           <tr v-for="group in groupedItems" :key="group.key" class="group-row">
-            <td>{{ group.actorName || 'Unknown' }}</td>
-            <td>{{ group.actorTeam || '-' }}</td>
-            <td>{{ group.fromEqpId || '-' }}</td>
+            <td>
+              <div class="name-wrap"
+                   @mouseenter="hoveredNameKey = group.key"
+                   @mouseleave="hoveredNameKey = null">
+                <span>{{ group.actorName || 'Unknown' }}</span>
+                <div v-if="hoveredNameKey === group.key && group.knoxid" class="name-tooltip">{{ group.knoxid }}</div>
+              </div>
+            </td>
+            <td>{{ group.fromEqpDisplay }}</td>
             <td>
               <span class="action-chip" :class="actionClass(group.action)">
                 {{ group.action || '-' }}
                 <span v-if="group.hasFailure" class="warn-icon" :title="group.failureTooltip">❗</span>
               </span>
             </td>
-            <td>{{ group.toEqpIdDisplay }}</td>
+            <td>{{ group.toEqpDisplay }}</td>
             <td>{{ group.createdAt || '-' }}</td>
             <td class="recipe-name-td">
               <div class="recipe-name-cell">
@@ -190,14 +195,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { recipeTestApi, type HistoryComment, type HistoryEntry } from '../../recipe_test/api/recipeTestApi'
 
-type FilterField = 'actorName' | 'actorTeam' | 'fromEqpId' | 'toEqpId' | 'action' | 'recipeName' | 'createdAt'
+type FilterField = 'actorName' | 'fromEqpId' | 'toEqpId' | 'action' | 'recipeName' | 'createdAt'
 type FilterRow = { id: number; field: FilterField; value: string; dateFrom: string; dateTo: string }
 type DetailEntry = { raw: string; label: string; chips: string[] }
-type GroupedHistoryItem = { key: string; actorName: string; actorTeam: string; fromEqpId: string; toEqpIdDisplay: string; action: string; createdAt: string; recipeNames: string[]; recipeSummary: string; hasFailure: boolean; failureTooltip: string; items: Array<{ displayName: string; status: string; reason: string; detail: string }>; detailEntries: DetailEntry[]; detailSummaryLabel: string; detailSummaryChips: string[]; detailHiddenCount: number }
+type GroupedHistoryItem = { key: string; actorName: string; knoxid: string; fromEqpId: string; fromEqpTeam: string; fromEqpDisplay: string; toEqpId: string; toEqpTeam: string; toEqpDisplay: string; action: string; createdAt: string; recipeNames: string[]; recipeSummary: string; hasFailure: boolean; failureTooltip: string; items: Array<{ displayName: string; status: string; reason: string; detail: string }>; detailEntries: DetailEntry[]; detailSummaryLabel: string; detailSummaryChips: string[]; detailHiddenCount: number }
 
 const filterOptions = [
   { value: 'actorName', label: '이름' },
-  { value: 'actorTeam', label: '분임조' },
   { value: 'fromEqpId', label: 'From 설비' },
   { value: 'toEqpId', label: 'To 설비' },
   { value: 'action', label: 'Action' },
@@ -214,6 +218,7 @@ const editingCommentKey = ref<string | null>(null)
 const editingCommentValue = ref('')
 const commentInputRefs: Record<string, HTMLInputElement> = {}
 const hoveredCommentKey = ref<string | null>(null)
+const hoveredNameKey = ref<string | null>(null)
 const currentMailPrefix = ref('')
 const expandedRecipeKeys = ref<Set<string>>(new Set())
 const expandedDetailKeys = ref<Set<string>>(new Set())
@@ -226,7 +231,12 @@ function lowerText(value: unknown) { return normalizeText(value).toLowerCase() }
 function labelByField(field: FilterField) { return filterOptions.find(x => x.value === field)?.label ?? field }
 function addFilter() { if (filters.value.length < 4) filters.value.push({ id: filterSeq++, field: 'recipeName', value: '', dateFrom: '', dateTo: '' }) }
 function removeFilter(id: number) { filters.value = filters.value.filter(x => x.id !== id); if (!filters.value.length) filters.value = [{ id: filterSeq++, field: 'fromEqpId', value: '', dateFrom: '', dateTo: '' }] }
-function normalizeToEqp(row: any) { const from = normalizeText(row.fromEqpId); const to = normalizeText(row.toEqpId); return !to || to === from ? '-' : to }
+function eqpDisplay(eqpId: string, team: string) { return team ? `${eqpId}(${team})` : eqpId }
+function normalizeToEqpDisplay(row: any) {
+  const from = normalizeText(row.fromEqpId); const to = normalizeText(row.toEqpId)
+  if (!to || to === from) return '-'
+  return eqpDisplay(to, normalizeText(row.toEqpTeam))
+}
 function effectiveRecipeName(row: any) { return normalizeText(row.recipeName) || normalizeText(row.targetName) || normalizeText(row.sourceName) || '-' }
 function toDatePart(v: string) { return normalizeText(v).slice(0, 10) }
 
@@ -311,7 +321,7 @@ const filteredItems = computed(() => items.value.filter((row: any) => {
     }
     const q = lowerText(filter.value)
     if (!q) continue
-    const fieldValue = filter.field === 'recipeName' ? effectiveRecipeName(row) : filter.field === 'toEqpId' ? normalizeToEqp(row) : normalizeText((row as any)[filter.field])
+    const fieldValue = filter.field === 'recipeName' ? effectiveRecipeName(row) : filter.field === 'toEqpId' ? normalizeToEqpDisplay(row) : filter.field === 'fromEqpId' ? eqpDisplay(normalizeText(row.fromEqpId), normalizeText(row.fromEqpTeam || row.actorTeam)) : normalizeText((row as any)[filter.field])
     if (!lowerText(fieldValue).includes(q)) return false
   }
   return true
@@ -321,19 +331,23 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
   const map = new Map<string, GroupedHistoryItem>()
   for (const row of filteredItems.value) {
     const actorName = normalizeText((row as any).actorName) || 'Unknown'
-    const actorTeam = normalizeText((row as any).actorTeam)
+    const knoxid = normalizeText((row as any).knoxid)
     const fromEqpId = normalizeText((row as any).fromEqpId)
-    const toEqpIdDisplay = normalizeToEqp(row)
+    const fromEqpTeam = normalizeText((row as any).fromEqpTeam || (row as any).actorTeam)
+    const fromEqpDisplay = eqpDisplay(fromEqpId, fromEqpTeam)
+    const toEqpId = normalizeText((row as any).toEqpId)
+    const toEqpTeam = normalizeText((row as any).toEqpTeam)
+    const toEqpDisplay = normalizeToEqpDisplay(row)
     const action = normalizeText((row as any).action)
     const createdAt = normalizeText((row as any).createdAt)
-    const key = [actorName, actorTeam, fromEqpId, toEqpIdDisplay, action, createdAt].join('||')
+    const key = [actorName, fromEqpId, fromEqpTeam, toEqpDisplay, action, createdAt].join('||')
     const recipeName = effectiveRecipeName(row)
     const status = normalizeText((row as any).status) || 'ok'
     const reason = normalizeText((row as any).reason)
     const detail = normalizeText((row as any).detail)
     let group = map.get(key)
     if (!group) {
-      group = { key, actorName, actorTeam, fromEqpId, toEqpIdDisplay, action, createdAt, recipeNames: [], recipeSummary: '-', hasFailure: false, failureTooltip: '', items: [], detailEntries: [], detailSummaryLabel: '', detailSummaryChips: [], detailHiddenCount: 0 }
+      group = { key, actorName, knoxid, fromEqpId, fromEqpTeam, fromEqpDisplay, toEqpId, toEqpTeam, toEqpDisplay, action, createdAt, recipeNames: [], recipeSummary: '-', hasFailure: false, failureTooltip: '', items: [], detailEntries: [], detailSummaryLabel: '', detailSummaryChips: [], detailHiddenCount: 0 }
       map.set(key, group)
     }
     if (recipeName && !group.recipeNames.includes(recipeName)) group.recipeNames.push(recipeName)
@@ -465,6 +479,9 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-relation { color: #64748b; font-weight: 700; font-size: 11px; }
 .detail-more { color: #6b7280; font-size: 11px; }
 .warn-icon, .to-fail-icon, .detail-fail { color: #dc2626; font-weight: 700; }
+.name-wrap { position: relative; display: inline-block; }
+.name-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; background: #1e293b; color: #f1f5f9; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 30; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.name-tooltip::after { content: ''; position: absolute; top: 100%; left: 12px; border: 5px solid transparent; border-top-color: #1e293b; }
 .comment-th { min-width: 260px; width: 320px; }
 .comment-td { min-width: 260px; cursor: text; vertical-align: middle; }
 .comment-wrap { position: relative; display: inline-block; width: 100%; }

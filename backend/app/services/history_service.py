@@ -31,6 +31,9 @@ class HistoryEntry:
     status: str = 'ok'
     reason: str = ''
     detail: str = ''
+    knoxid: str = ''
+    fromEqpTeam: str = ''
+    toEqpTeam: str = ''
 
 def _normalize_text(value: Any) -> str:
     return str(value or '').strip()
@@ -51,6 +54,9 @@ def append_history_entry(**kwargs: Any) -> dict[str, Any]:
         status=_normalize_text(kwargs.get('status')) or 'ok',
         reason=_normalize_text(kwargs.get('reason')),
         detail=_normalize_text(kwargs.get('detail')),
+        knoxid=_normalize_text(kwargs.get('knoxid')),
+        fromEqpTeam=_normalize_text(kwargs.get('fromEqpTeam')),
+        toEqpTeam=_normalize_text(kwargs.get('toEqpTeam')),
     )
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     with HISTORY_FILE.open('a', encoding='utf-8') as fp:
