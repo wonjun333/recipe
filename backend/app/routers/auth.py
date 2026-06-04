@@ -87,21 +87,26 @@ def _enrich_auth_payload(payload: dict) -> dict:
     return enriched
 
 
-def get_actor_from_request(request: Request) -> tuple[str, str]:
-    """JWT 쿠키에서 (actor_name, actor_team) 추출. 실패 시 ('', '') 반환."""
+def get_user_from_request(request: Request) -> dict:
+    """JWT 쿠키에서 enriched user payload 추출. 실패 시 빈 dict 반환."""
     if AUTH_MODE != "saml":
-        return _MOCK_USER.get("Username", ""), _MOCK_USER.get("DeptName", "")
+        return dict(_MOCK_USER)
     try:
         auth_token = request.cookies.get(AUTH_COOKIE_NAME, "")
         if not auth_token:
-            return "", ""
+            return {}
         cert_pem = Path(JWT_CERT_PATH).read_text(encoding="utf-8")
         public_key = load_pem_x509_certificate(cert_pem.encode("utf-8")).public_key()
         payload = jwt.decode(auth_token, public_key, algorithms=["RS256"])
-        payload = _enrich_auth_payload(payload)
-        return _clean_text(payload.get("Username")), _clean_text(payload.get("DeptName"))
+        return _enrich_auth_payload(payload)
     except Exception:
-        return "", ""
+        return {}
+
+
+def get_actor_from_request(request: Request) -> tuple[str, str]:
+    """JWT 쿠키에서 (actor_name, actor_team) 추출. 실패 시 ('', '') 반환."""
+    user = get_user_from_request(request)
+    return _clean_text(user.get("Username")), _clean_text(user.get("DeptName"))
 
 
 def _clean_text(value: object) -> str:

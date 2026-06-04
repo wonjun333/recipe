@@ -33,7 +33,7 @@ from app.services.file_ops_service import (
 from app.services.recipe_preview_service import build_recipe_preview_from_bytes, build_source_recipe_preview, create_no_preview_recipe
 from app.services.temp_file_store import LOCAL_EDIT_BASE, write_local_shadow_file as svc_write_local_shadow_file
 from app.services.history_service import append_history_entry, list_history_entries
-from app.routers.auth import get_actor_from_request
+from app.routers.auth import get_actor_from_request, get_user_from_request
 from app.services.history_comment_store import get_all_comments, set_comment as set_history_comment
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
 from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
@@ -1858,11 +1858,12 @@ def get_history_comments():
 
 
 @router.put('/history-comment')
-def put_history_comment(body: dict):
+def put_history_comment(body: dict, request: Request):
     try:
         group_key = str(body.get('groupKey', '')).strip()
         comment = str(body.get('comment', '')).strip()
-        comment_author = str(body.get('commentAuthor', '')).strip()
+        user = get_user_from_request(request)
+        comment_author = str(user.get('MailAccount') or body.get('commentAuthor', '')).strip()
         if not group_key:
             raise HTTPException(status_code=422, detail='groupKey is required')
         set_history_comment(group_key, comment, comment_author)
