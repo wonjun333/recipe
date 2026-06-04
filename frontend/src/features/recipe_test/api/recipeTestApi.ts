@@ -133,6 +133,7 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 60000): Pro
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
