@@ -184,8 +184,7 @@ function setRootRef(el: Element | null) {
   font-weight:900;
 }
 .save-btn{
-  height:22px;
-  padding:0 10px;
+  padding:0 8px;
 }
 .cas-tabs{
   display:flex;
@@ -229,6 +228,13 @@ function setRootRef(el: Element | null) {
   border-right:2px solid #fff;
   border-bottom:2px solid #fff;
 }
+.cas-std-actions .win-btn{
+  height:18px;
+  min-height:18px;
+  padding:0 8px;
+  font-size:11px;
+  line-height:12px;
+}
 .cas-body{
   flex:1;
   overflow:auto;
@@ -241,16 +247,18 @@ function setRootRef(el: Element | null) {
   align-items:center;
   justify-content:space-between;
   gap:12px;
-  margin-bottom:6px;
+  margin-bottom:2px;
+  min-height:18px;
 }
 .cas-std-hint{
   font-weight:900;
   font-size:12px;
+  line-height:1;
   color:#333;
 }
 .cas-std-actions{
   display:flex;
-  gap:6px;
+  gap:4px;
 }
 .cas-table-wrap{
   background:#fff;

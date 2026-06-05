@@ -1771,7 +1771,7 @@ function clearCasCellSelection(){
 function selectJobNameColumn(){
   if(!casEditMode.value) return
   selectedSlotCells.clear()
-  for(let s=1;s<=24;s++) selectedSlotCells.add(s)
+  for(let s=1;s<=CAS_PER_COL;s++) selectedSlotCells.add(s)
   casAnchorSlot.value=1
 }
 function onCasTableHeaderClick(idx:number){
