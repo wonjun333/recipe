@@ -4184,6 +4184,15 @@ onMounted(async () => {
       if (prefs.team) team.value = prefs.team
     }
   } catch {}
+  if (!team.value) {
+    try {
+      const res = await fetch('/api/user/profile', { credentials: 'include' })
+      if (res.ok) {
+        const profile = await res.json()
+        if (profile.part) team.value = profile.part
+      }
+    } catch {}
+  }
   resetPageToBlank()
   updateCartOverlayPos()
 })

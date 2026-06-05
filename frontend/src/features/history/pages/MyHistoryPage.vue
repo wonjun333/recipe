@@ -195,7 +195,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { recipeTestApi, type HistoryComment, type HistoryEntry } from '../../recipe_test/api/recipeTestApi'
 
-type FilterField = 'actorName' | 'fromEqpId' | 'toEqpId' | 'action' | 'recipeName' | 'createdAt'
+type FilterField = 'actorName' | 'fromEqpId' | 'toEqpId' | 'fromEqpTeam' | 'action' | 'recipeName' | 'createdAt'
 type FilterRow = { id: number; field: FilterField; value: string; dateFrom: string; dateTo: string }
 type DetailEntry = { raw: string; label: string; chips: string[] }
 type GroupedHistoryItem = { key: string; actorName: string; knoxid: string; fromEqpId: string; fromEqpTeam: string; fromEqpDisplay: string; toEqpId: string; toEqpTeam: string; toEqpDisplay: string; action: string; createdAt: string; recipeNames: string[]; recipeSummary: string; hasFailure: boolean; failureTooltip: string; items: Array<{ displayName: string; status: string; reason: string; detail: string }>; detailEntries: DetailEntry[]; detailSummaryLabel: string; detailSummaryChips: string[]; detailHiddenCount: number }
@@ -204,6 +204,7 @@ const filterOptions = [
   { value: 'actorName', label: '이름' },
   { value: 'fromEqpId', label: 'From 설비' },
   { value: 'toEqpId', label: 'To 설비' },
+  { value: 'fromEqpTeam', label: '분임조' },
   { value: 'action', label: 'Action' },
   { value: 'recipeName', label: 'Recipe Name' },
   { value: 'createdAt', label: '시간' },
@@ -421,6 +422,16 @@ onMounted(async () => {
       const user = await res.json()
       const mail = String(user.MailAccount || user.Mail || '')
       currentMailPrefix.value = mail.includes('@') ? mail.split('@')[0] : mail
+    }
+  } catch {}
+  try {
+    const res = await fetch('/api/user/profile', { credentials: 'include' })
+    if (res.ok) {
+      const profile = await res.json()
+      if (profile.part) {
+        filters.value[0].field = 'fromEqpTeam'
+        filters.value[0].value = profile.part
+      }
     }
   } catch {}
 })

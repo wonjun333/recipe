@@ -61,6 +61,15 @@ def get_me(request: Request):
         return _unauthorized("Invalid token", clear_cookie=True)
 
 
+@router.get("/api/user/profile")
+def get_user_profile(request: Request):
+    user = get_user_from_request(request)
+    knoxid = _clean_text(user.get("MailAccount"))
+    from app.services.user_profile_service import get_user_part
+    part = get_user_part(knoxid)
+    return {"knoxid": knoxid, "part": part}
+
+
 @router.post("/api/auth/logout")
 def logout():
     response = Response(status_code=204)
