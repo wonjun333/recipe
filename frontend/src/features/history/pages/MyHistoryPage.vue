@@ -113,7 +113,7 @@
             <td>
               <div class="eqp-wrap">
                 <span>{{ group.toEqpDisplay }}</span>
-                <div v-if="group.toEqpDisplay !== '-' && group.toEqpTeam" class="eqp-tooltip">{{ group.toEqpTeam }}</div>
+                <div v-if="group.toEqpTeam" class="eqp-tooltip">{{ group.toEqpTeam }}</div>
               </div>
             </td>
             <td>{{ group.createdAt || '-' }}</td>
@@ -121,10 +121,10 @@
               <div class="recipe-name-cell">
                 <span class="recipe-summary">{{ group.recipeSummary }}</span>
                 <div class="detail-anchor" v-if="group.recipeNames.length > 1">
-                  <button class="expand-btn" type="button" @click.stop="toggleExpand(group.key, 'recipe')">
+                  <button class="expand-btn" type="button" @click.stop="toggleExpand(group.key, 'recipe', $event)">
                     {{ isExpanded(group.key, 'recipe') ? '▲' : '▼' }}
                   </button>
-                  <div v-if="isExpanded(group.key, 'recipe')" class="detail-popover recipe-popover">
+                  <div v-if="isExpanded(group.key, 'recipe')" class="detail-popover recipe-popover floating-popover" :style="popoverStyle(group.key, 'recipe')">
                     <ul class="detail-list">
                       <li v-for="(item, idx) in group.items" :key="`${group.key}-recipe-${idx}`">
                         <span class="detail-name">{{ item.displayName }}</span>
@@ -146,11 +146,11 @@
                   <span v-if="group.detailHiddenCount > 0" class="detail-more">외 {{ group.detailHiddenCount }}건</span>
                 </div>
                 <div class="detail-anchor" v-if="group.detailEntries.length > 1">
-                  <button class="expand-btn" type="button" @click.stop="toggleExpand(group.key, 'detail')">
+                  <button class="expand-btn" type="button" @click.stop="toggleExpand(group.key, 'detail', $event)">
                     {{ isExpanded(group.key, 'detail') ? '▽' : '▼' }}
                   </button>
                 </div>
-                <div v-if="isExpanded(group.key, 'detail')" class="detail-popover detail-overlay">
+                <div v-if="isExpanded(group.key, 'detail')" class="detail-popover detail-overlay floating-popover" :style="popoverStyle(group.key, 'detail')">
                   <div class="detail-groups">
                     <div v-for="(entry, idx) in group.detailEntries.slice(1)" :key="`${group.key}-detail-${idx + 1}`" class="detail-group">
                       <span v-if="entry.label" class="detail-label-chip">{{ entry.label }}</span>
@@ -233,6 +233,7 @@ const hoveredNameKey = ref<string | null>(null)
 const currentMailPrefix = ref('')
 const expandedRecipeKeys = ref<Set<string>>(new Set())
 const expandedDetailKeys = ref<Set<string>>(new Set())
+const expandedPopoverStyles = ref<Record<string, Record<string, string>>>({})
 const openRangeFilterId = ref<number | null>(null)
 const calendarCursor = ref(new Date())
 let filterSeq = 2
@@ -350,7 +351,7 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
     const toEqpDisplay = normalizeToEqpDisplay(row)
     const action = normalizeText((row as any).action)
     const createdAt = normalizeText((row as any).createdAt)
-    const key = [actorName, fromEqpId, fromEqpTeam, toEqpDisplay, action, createdAt].join('||')
+    const key = [actorName, fromEqpId, fromEqpTeam, toEqpDisplay, toEqpTeam, action, createdAt].join('||')
     const recipeName = effectiveRecipeName(row)
     const status = normalizeText((row as any).status) || 'ok'
     const reason = normalizeText((row as any).reason)
@@ -386,7 +387,37 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
 function countByAction(action: string) { return groupedItems.value.filter(x => x.action === action).length }
 function actionClass(action: string) { const key = normalizeText(action).toLowerCase(); return { rename: key === 'rename', saveas: key === 'save as', edit: key === 'edit', delete: key === 'delete', transfer: key === 'transfer' } }
 function isExpanded(key: string, kind: 'recipe' | 'detail') { return (kind === 'recipe' ? expandedRecipeKeys.value : expandedDetailKeys.value).has(key) }
-function toggleExpand(key: string, kind: 'recipe' | 'detail') { const set = kind === 'recipe' ? expandedRecipeKeys.value : expandedDetailKeys.value; set.has(key) ? set.delete(key) : set.add(key); if (kind === 'recipe') expandedRecipeKeys.value = new Set(set); else expandedDetailKeys.value = new Set(set) }
+function popoverKey(key: string, kind: 'recipe' | 'detail') { return `${kind}::${key}` }
+function popoverStyle(key: string, kind: 'recipe' | 'detail') { return expandedPopoverStyles.value[popoverKey(key, kind)] ?? {} }
+function setPopoverStyle(key: string, kind: 'recipe' | 'detail', event: MouseEvent) {
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  const width = kind === 'detail' ? 320 : 260
+  const estimatedHeight = kind === 'detail' ? 220 : 180
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
+  const opensUp = rect.bottom + estimatedHeight + 12 > window.innerHeight
+  const top = opensUp ? Math.max(12, rect.top - estimatedHeight - 6) : rect.bottom + 6
+  expandedPopoverStyles.value = {
+    ...expandedPopoverStyles.value,
+    [popoverKey(key, kind)]: {
+      position: 'fixed',
+      top: `${top}px`,
+      left: `${left}px`,
+      zIndex: '2000',
+    },
+  }
+}
+function toggleExpand(key: string, kind: 'recipe' | 'detail', event?: MouseEvent) {
+  const set = kind === 'recipe' ? expandedRecipeKeys.value : expandedDetailKeys.value
+  if (set.has(key)) {
+    set.delete(key)
+  } else {
+    set.add(key)
+    if (event) setPopoverStyle(key, kind, event)
+  }
+  if (kind === 'recipe') expandedRecipeKeys.value = new Set(set); else expandedDetailKeys.value = new Set(set)
+}
 
 function rangeLabel(filter: FilterRow) { return filter.dateFrom || filter.dateTo ? `${filter.dateFrom || '시작'} ~ ${filter.dateTo || '끝'}` : '날짜 범위 선택' }
 function toggleRangePicker(id: number) { openRangeFilterId.value = openRangeFilterId.value === id ? null : id }
@@ -487,6 +518,7 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-anchor { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .expand-btn { border: none; background: transparent; cursor: pointer; font-size: 12px; color: #374151; }
 .detail-popover { position: absolute; top: calc(100% + 6px); left: 0; margin-top: 0; z-index: 24; background: #fff; border: 1px solid #d9deea; border-radius: 12px; box-shadow: 0 14px 30px rgba(15, 23, 42, .16); padding: 10px 12px; min-width: 260px; }
+.floating-popover { max-width: calc(100vw - 24px); max-height: min(360px, calc(100vh - 24px)); overflow: auto; }
 .recipe-name-cell .detail-anchor { position: static; }
 .recipe-popover { left: 0; top: calc(100% + 6px); }
 .detail-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }

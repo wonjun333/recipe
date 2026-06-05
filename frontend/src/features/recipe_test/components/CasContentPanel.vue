@@ -75,9 +75,6 @@
               </table>
             </div>
 
-            <div v-if="editMode" class="cas-edit-hint">
-              Job Name 셀 선택 후 Job List에서 Job 클릭 → 선택된 Slot들의 Job Name이 변경됩니다. (Ctrl/Shift)
-            </div>
           </div>
 
           <div v-else class="cas-todo">(준비중) {{ tabLabel }}</div>
@@ -290,11 +287,14 @@ function setRootRef(el: Element | null) {
 .cas-table th.clickable:hover{
   background:#cfc9be;
 }
+.cas-table tbody tr{
+  height:21px;
+}
 .cas-td{
   border:1px solid #808080;
-  padding:1px 4px 2px;
+  padding:2px 4px;
   font-size:13px;
-  line-height:15px;
+  line-height:16px;
   white-space:nowrap;
   user-select:none;
 }
@@ -310,13 +310,6 @@ function setRootRef(el: Element | null) {
 .cas-cell.clickable:hover{
   text-decoration:underline;
   background:#eaf7ff;
-}
-.cas-edit-hint{
-  margin-top:2px;
-  font-size:10px;
-  line-height:1;
-  font-weight:900;
-  color:#333;
 }
 .center{
   text-align:center;
