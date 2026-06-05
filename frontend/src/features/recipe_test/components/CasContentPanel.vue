@@ -154,7 +154,7 @@ function setRootRef(el: Element | null) {
   padding:8px;
   display:flex;
   flex-direction:column;
-  gap:8px;
+  gap:0;
   position:relative;
   height:100%;
   min-height:0;
@@ -190,6 +190,8 @@ function setRootRef(el: Element | null) {
   display:flex;
   gap:4px;
   width:max-content;
+  margin-top:8px;
+  margin-bottom:1px;
 }
 .win-tab{
   background:#c0c0c0;
@@ -310,8 +312,9 @@ function setRootRef(el: Element | null) {
   background:#eaf7ff;
 }
 .cas-edit-hint{
-  margin-top:8px;
-  font-size:11px;
+  margin-top:2px;
+  font-size:10px;
+  line-height:1;
   font-weight:900;
   color:#333;
 }
