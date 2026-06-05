@@ -98,14 +98,24 @@
                 <div v-if="hoveredNameKey === group.key && group.knoxid" class="name-tooltip">{{ group.knoxid }}</div>
               </div>
             </td>
-            <td>{{ group.fromEqpDisplay }}</td>
+            <td>
+              <div class="eqp-wrap">
+                <span>{{ group.fromEqpId || '-' }}</span>
+                <div v-if="group.fromEqpTeam" class="eqp-tooltip">{{ group.fromEqpTeam }}</div>
+              </div>
+            </td>
             <td>
               <span class="action-chip" :class="actionClass(group.action)">
                 {{ group.action || '-' }}
                 <span v-if="group.hasFailure" class="warn-icon" :title="group.failureTooltip">❗</span>
               </span>
             </td>
-            <td>{{ group.toEqpDisplay }}</td>
+            <td>
+              <div class="eqp-wrap">
+                <span>{{ group.toEqpDisplay }}</span>
+                <div v-if="group.toEqpDisplay !== '-' && group.toEqpTeam" class="eqp-tooltip">{{ group.toEqpTeam }}</div>
+              </div>
+            </td>
             <td>{{ group.createdAt || '-' }}</td>
             <td class="recipe-name-td">
               <div class="recipe-name-cell">
@@ -232,11 +242,10 @@ function lowerText(value: unknown) { return normalizeText(value).toLowerCase() }
 function labelByField(field: FilterField) { return filterOptions.find(x => x.value === field)?.label ?? field }
 function addFilter() { if (filters.value.length < 4) filters.value.push({ id: filterSeq++, field: 'recipeName', value: '', dateFrom: '', dateTo: '' }) }
 function removeFilter(id: number) { filters.value = filters.value.filter(x => x.id !== id); if (!filters.value.length) filters.value = [{ id: filterSeq++, field: 'fromEqpId', value: '', dateFrom: '', dateTo: '' }] }
-function eqpDisplay(eqpId: string, team: string) { return team ? `${eqpId}(${team})` : eqpId }
 function normalizeToEqpDisplay(row: any) {
   const from = normalizeText(row.fromEqpId); const to = normalizeText(row.toEqpId)
   if (!to || to === from) return '-'
-  return eqpDisplay(to, normalizeText(row.toEqpTeam))
+  return to
 }
 function effectiveRecipeName(row: any) { return normalizeText(row.recipeName) || normalizeText(row.targetName) || normalizeText(row.sourceName) || '-' }
 function toDatePart(v: string) { return normalizeText(v).slice(0, 10) }
@@ -322,7 +331,7 @@ const filteredItems = computed(() => items.value.filter((row: any) => {
     }
     const q = lowerText(filter.value)
     if (!q) continue
-    const fieldValue = filter.field === 'recipeName' ? effectiveRecipeName(row) : filter.field === 'toEqpId' ? normalizeToEqpDisplay(row) : filter.field === 'fromEqpId' ? eqpDisplay(normalizeText(row.fromEqpId), normalizeText(row.fromEqpTeam || row.actorTeam)) : normalizeText((row as any)[filter.field])
+    const fieldValue = filter.field === 'recipeName' ? effectiveRecipeName(row) : filter.field === 'toEqpId' ? normalizeToEqpDisplay(row) : filter.field === 'fromEqpId' ? normalizeText(row.fromEqpId) : normalizeText((row as any)[filter.field])
     if (!lowerText(fieldValue).includes(q)) return false
   }
   return true
@@ -335,7 +344,7 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
     const knoxid = normalizeText((row as any).knoxid)
     const fromEqpId = normalizeText((row as any).fromEqpId)
     const fromEqpTeam = normalizeText((row as any).fromEqpTeam || (row as any).actorTeam)
-    const fromEqpDisplay = eqpDisplay(fromEqpId, fromEqpTeam)
+    const fromEqpDisplay = fromEqpId
     const toEqpId = normalizeText((row as any).toEqpId)
     const toEqpTeam = normalizeText((row as any).toEqpTeam)
     const toEqpDisplay = normalizeToEqpDisplay(row)
@@ -490,6 +499,10 @@ onBeforeUnmount(() => window.removeEventListener('click', onWindowClick))
 .detail-relation { color: #64748b; font-weight: 700; font-size: 11px; }
 .detail-more { color: #6b7280; font-size: 11px; }
 .warn-icon, .to-fail-icon, .detail-fail { color: #dc2626; font-weight: 700; }
+.eqp-wrap { position: relative; display: inline-block; font-weight: 700; }
+.eqp-tooltip { display: none; position: absolute; bottom: calc(100% + 4px); left: 0; background: #1e293b; color: #f1f5f9; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 30; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.eqp-tooltip::after { content: ''; position: absolute; top: 100%; left: 12px; border: 5px solid transparent; border-top-color: #1e293b; }
+.eqp-wrap:hover .eqp-tooltip { display: block; }
 .name-wrap { position: relative; display: inline-block; }
 .name-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; background: #1e293b; color: #f1f5f9; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 30; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
 .name-tooltip::after { content: ''; position: absolute; top: 100%; left: 12px; border: 5px solid transparent; border-top-color: #1e293b; }

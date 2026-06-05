@@ -216,6 +216,7 @@ onBeforeUnmount(() => {
   border-right:2px solid #808080;
   border-bottom:2px solid #808080;
   padding:6px;
+  box-sizing:border-box;
   display:flex;
   flex-direction:column;
   min-width:0;

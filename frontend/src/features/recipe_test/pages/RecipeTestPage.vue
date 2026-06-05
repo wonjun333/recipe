@@ -263,9 +263,9 @@ const RECIPE_PER_COL = 8
 
 /** Heights */
 const PANE_H = 662
-const LIST_EXTRA = 12
+const LIST_PANE_H = 674
 const paneHeight = `${PANE_H}px`
-const listPaneHeight = `${PANE_H + LIST_EXTRA}px`
+const listPaneHeight = `${LIST_PANE_H}px`
 
 /** constants */
 const NONE_LABEL = '(None)'
@@ -1442,7 +1442,7 @@ const casContentStyle = computed(() => {
     return { height: listPaneHeight, width: '0px', flexBasis: '0px' }
   }
   const w = 'max-content'
-  return { height: '674px', width: w, flexBasis: w, flexShrink: '0' }
+  return { height: listPaneHeight, width: w, flexBasis: w, flexShrink: '0' }
 })
 
 const jobPanelStyle = computed(() => {
@@ -4256,6 +4256,7 @@ watch(activePane, () => {
 .cas-content{
   min-width:0;
   overflow:hidden;
+  box-sizing:border-box;
 }
 .cas-content:not(.open){
   width:0px;

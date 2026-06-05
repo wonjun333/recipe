@@ -126,7 +126,7 @@
               v-if="displayPreviewColumns.length"
               class="win-btn iconbtn copy-preview-btn"
               type="button"
-              title="Copy preview table"
+              title="copy to clipboard"
               aria-label="copy preview table"
               @click.stop="copyPreviewTable"
             >
@@ -184,13 +184,17 @@
         <div class="recipe-bottom-pad"></div>
       </div>
 
+      <Transition name="copyToast">
+        <div v-if="copyToastVisible" class="copy-toast" role="status" aria-live="polite">복사되었습니다.</div>
+      </Transition>
+
       <div class="page-bottom-pad"></div>
     </section>
   </Transition>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, type PropType } from 'vue'
+import { computed, onBeforeUnmount, ref, type PropType } from 'vue'
 import type { RecipeDetail } from '../api/recipeTestApi'
 import { visiblePreviewColumns } from '../utils/previewColumns'
 
@@ -243,6 +247,8 @@ const emit = defineEmits<{
 }>()
 
 const computedTitlePrefix = computed(() => (props.editMode ? 'Select' : ''))
+const copyToastVisible = ref(false)
+let copyToastTimer: ReturnType<typeof setTimeout> | null = null
 
 const richRecipeKinds = ['megasonics', 'brush1', 'brush2', 'vaporDryer'] as const
 const isPolPreview = computed(() => String((props.selectedRecipeSingle as any)?.meta?.sourceType ?? '') === 'pol')
@@ -393,6 +399,7 @@ function buildPreviewClipboardPayload() {
 async function copyPreviewTable() {
   const { html, tsv } = buildPreviewClipboardPayload()
   if (!html) return
+  let copied = false
   try {
     if ('ClipboardItem' in window && navigator.clipboard?.write) {
       await navigator.clipboard.write([
@@ -401,12 +408,25 @@ async function copyPreviewTable() {
           'text/plain': new Blob([tsv], { type: 'text/plain' }),
         }),
       ])
-      return
+      copied = true
     }
   } catch {}
-  try {
-    await navigator.clipboard?.writeText(tsv)
-  } catch {}
+  if (!copied) {
+    try {
+      await navigator.clipboard?.writeText(tsv)
+      copied = true
+    } catch {}
+  }
+  if (copied) showCopyToast()
+}
+
+function showCopyToast() {
+  copyToastVisible.value = true
+  if (copyToastTimer) clearTimeout(copyToastTimer)
+  copyToastTimer = setTimeout(() => {
+    copyToastVisible.value = false
+    copyToastTimer = null
+  }, 1600)
 }
 
 const headerCount = computed(() => Math.max(props.recipeCols.length, 1))
@@ -473,6 +493,7 @@ function setScrollRef(el: Element | null) {
 onBeforeUnmount(() => {
   emit('register-root', null)
   emit('register-scroll-el', null)
+  if (copyToastTimer) clearTimeout(copyToastTimer)
 })
 </script>
 
@@ -742,6 +763,32 @@ onBeforeUnmount(() => {
   stroke-width:1.8;
   stroke-linecap:round;
   stroke-linejoin:round;
+}
+.copy-toast{
+  position:fixed;
+  left:50%;
+  bottom:18px;
+  transform:translateX(-50%);
+  z-index:4000;
+  padding:7px 12px;
+  background:#111827;
+  color:#fff;
+  border:1px solid #374151;
+  border-radius:4px;
+  box-shadow:0 4px 12px rgba(0,0,0,.22);
+  font-size:12px;
+  font-weight:900;
+  line-height:1;
+  pointer-events:none;
+}
+.copyToast-enter-active,
+.copyToast-leave-active{
+  transition:opacity .16s ease, transform .16s ease;
+}
+.copyToast-enter-from,
+.copyToast-leave-to{
+  opacity:0;
+  transform:translate(-50%, 6px);
 }
 .recipe-meta{
   padding:6px 8px;
