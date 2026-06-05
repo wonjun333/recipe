@@ -27,13 +27,13 @@
         <div class="cas-body">
           <div v-if="tab==='standard'">
             <div class="cas-std-bar">
-              <div class="cas-std-hint">Slot # (1~24) / Job Name</div>
+              <div class="cas-std-hint">Slot # (1~25) / Job Name</div>
               <div class="cas-std-actions">
                 <button v-if="!editMode" class="win-btn save-btn" @click="emit('save-as')">Save As</button>
                 <button v-if="!editMode" class="win-btn save-btn" @click="emit('enter-edit')">Edit</button>
                 <template v-else>
                   <button class="win-btn save-btn" @click="emit('save')">Save</button>
-                  <button class="win-btn" @click="emit('cancel')">Cancel</button>
+                  <button class="win-btn save-btn" @click="emit('cancel')">Cancel</button>
                 </template>
               </div>
             </div>
@@ -290,8 +290,9 @@ function setRootRef(el: Element | null) {
 }
 .cas-td{
   border:1px solid #808080;
-  padding:2px 4px;
+  padding:1px 4px 2px;
   font-size:13px;
+  line-height:15px;
   white-space:nowrap;
   user-select:none;
 }
