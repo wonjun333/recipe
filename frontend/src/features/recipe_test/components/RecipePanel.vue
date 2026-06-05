@@ -173,6 +173,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, type PropType } from 'vue'
 import type { RecipeDetail } from '../api/recipeTestApi'
+import { visiblePreviewColumns } from '../utils/previewColumns'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -303,7 +304,7 @@ function recipeCellHtml(column: string, value: unknown, row?: Record<string, unk
 
 const headerCount = computed(() => Math.max(props.recipeCols.length, 1))
 const columnBlockWidth = computed(() => ((props.listMode === 'detail' ? props.colWidths.name + props.colWidths.modifiedAt : props.colWidths.name) + 8))
-const displayPreviewColumns = computed(() => (props.selectedRecipeSingle?.columns ?? []).filter(c => c !== '#' && c !== '__ui__'))
+const displayPreviewColumns = computed(() => visiblePreviewColumns(props.selectedRecipeSingle))
 
 function previewColumnStyle(column: string) {
   const sourceKind = props.selectedRecipeSingle?.sourceKind ?? ''

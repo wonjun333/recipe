@@ -143,6 +143,7 @@
 <script setup lang="ts">
 import { computed, type PropType } from 'vue'
 import type { RecipeDetail, RecipeSourceKind } from '../api/recipeTestApi'
+import { visiblePreviewColumns } from '../utils/previewColumns'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -195,7 +196,7 @@ const firstPickerKind = computed(() => {
 const isPolConPicker = computed(() => ['polishRecipe', 'conditionRecipe', 'exSituCondition', 'specialExSitu'].includes(String(firstPickerKind.value)))
 const isPolPreview = computed(() => String((props.previewRecipe as any)?.meta?.sourceType ?? '') === 'pol')
 const columnBlockWidth = computed(() => ((props.listMode === 'detail' ? props.colWidths.name + props.colWidths.modifiedAt : props.colWidths.name) + 8))
-const displayPreviewColumns = computed(() => (props.previewRecipe?.columns ?? []).filter(c => c !== '#' && c !== '__ui__'))
+const displayPreviewColumns = computed(() => visiblePreviewColumns(props.previewRecipe))
 
 function stripKnownRecipeExt(name: unknown, sourceKind?: RecipeSourceKind) {
   const text = String(name ?? '').trim()
