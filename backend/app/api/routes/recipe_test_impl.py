@@ -100,25 +100,29 @@ def record_history(
 ) -> None:
     src = str(source_name or '').strip()
     tgt = str(target_name or '').strip()
-    append_history_entry(
-        actorName=str(actor_name or '').strip() or 'Unknown',
-        actorTeam=str(from_eqp_team or '').strip(),
-        fromEqpId=str(from_eqp_id or '').strip(),
-        action=str(action or '').strip(),
-        toEqpId=str(to_eqp_id or '').strip(),
-        createdAt=str(created_at or '').strip() or now_history_ts(),
-        itemKind=str(item_kind or '').strip(),
-        sourceName=src,
-        targetName=tgt,
-        recipeName=str(recipe_name or '').strip() or tgt or src,
-        requestId=str(request_id or '').strip(),
-        status=str(status or '').strip() or 'ok',
-        reason=str(reason or '').strip(),
-        detail=str(detail or '').strip(),
-        knoxid=str(knoxid or '').strip(),
-        fromEqpTeam=str(from_eqp_team or '').strip(),
-        toEqpTeam=str(to_eqp_team or '').strip(),
-    )
+    try:
+        append_history_entry(
+            actorName=str(actor_name or '').strip() or 'Unknown',
+            actorTeam=str(from_eqp_team or '').strip(),
+            fromEqpId=str(from_eqp_id or '').strip(),
+            action=str(action or '').strip(),
+            toEqpId=str(to_eqp_id or '').strip(),
+            createdAt=str(created_at or '').strip() or now_history_ts(),
+            itemKind=str(item_kind or '').strip(),
+            sourceName=src,
+            targetName=tgt,
+            recipeName=str(recipe_name or '').strip() or tgt or src,
+            requestId=str(request_id or '').strip(),
+            status=str(status or '').strip() or 'ok',
+            reason=str(reason or '').strip(),
+            detail=str(detail or '').strip(),
+            knoxid=str(knoxid or '').strip(),
+            fromEqpTeam=str(from_eqp_team or '').strip(),
+            toEqpTeam=str(to_eqp_team or '').strip(),
+        )
+    except Exception as _hist_err:
+        import logging
+        logging.getLogger(__name__).warning('record_history failed (non-fatal): %s', _hist_err)
 
 
 def _normalize_history_value(value: Any) -> str:

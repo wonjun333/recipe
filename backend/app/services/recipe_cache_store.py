@@ -332,7 +332,7 @@ def _ensure_schema_postgres(conn) -> None:
     ]
     for stmt in stmts:
         conn.execute(stmt)
-    # ALTER TABLE for missing columns (idempotent via DO NOTHING pattern)
+    # ALTER TABLE for missing columns (idempotent)
     for col, definition in [
         ('cloud_protected', 'INTEGER NOT NULL DEFAULT 0'),
         ('retain_cached', 'INTEGER NOT NULL DEFAULT 0'),
@@ -342,6 +342,27 @@ def _ensure_schema_postgres(conn) -> None:
     ]:
         if not _pg_column_exists(conn, 'equipment_inventory', col):
             conn.execute(f'ALTER TABLE equipment_inventory ADD COLUMN {col} {definition}')
+    for col, definition in [
+        ('actor_name', "TEXT NOT NULL DEFAULT ''"),
+        ('actor_team', "TEXT NOT NULL DEFAULT ''"),
+        ('from_eqp_id', "TEXT NOT NULL DEFAULT ''"),
+        ('action', "TEXT NOT NULL DEFAULT ''"),
+        ('to_eqp_id', "TEXT NOT NULL DEFAULT ''"),
+        ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ('item_kind', "TEXT NOT NULL DEFAULT ''"),
+        ('source_name', "TEXT NOT NULL DEFAULT ''"),
+        ('target_name', "TEXT NOT NULL DEFAULT ''"),
+        ('recipe_name', "TEXT NOT NULL DEFAULT ''"),
+        ('request_id', "TEXT NOT NULL DEFAULT ''"),
+        ('status', "TEXT NOT NULL DEFAULT 'ok'"),
+        ('reason', "TEXT NOT NULL DEFAULT ''"),
+        ('detail', "TEXT NOT NULL DEFAULT ''"),
+        ('knoxid', "TEXT NOT NULL DEFAULT ''"),
+        ('from_eqp_team', "TEXT NOT NULL DEFAULT ''"),
+        ('to_eqp_team', "TEXT NOT NULL DEFAULT ''"),
+    ]:
+        if not _pg_column_exists(conn, 'recipe_history', col):
+            conn.execute(f'ALTER TABLE recipe_history ADD COLUMN {col} {definition}')
     conn.commit()
 
 
