@@ -236,9 +236,11 @@ function recipeCellClass(column: string, value: unknown, row?: Record<string, un
   const sourceKind = props.previewRecipe?.sourceKind ?? ''
   const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
   const ui = recipeCellUi(column, row)
+  const isSmallCheckboxColumn = sourceType === 'pol' && ['Main', 'RTPC', 'HPR', 'Head Rinse'].includes(column)
   return {
     'recipe-cell-preline': text.includes('\n'),
     'recipe-checkbox-cell': ui.kind === 'checkbox',
+    'recipe-checkbox-small': ui.kind === 'checkbox' && isSmallCheckboxColumn,
     'col-narrow-cell': (sourceType === 'pol' || sourceType === 'con') && (column === 'Head Sweep' || column.startsWith('L')),
     'cell-cyan': ui.tone === 'cyan'
       || (sourceKind === 'megasonics' && column === 'Wafer RPM')
@@ -302,11 +304,11 @@ function previewColumnStyle(column: string) {
   if (sourceType === 'pol' || sourceType === 'con') {
     if (column === '__index__') return { width: '26px' }
     if (column === 'Description') return { width: '14%' }
-    if (sourceType === 'pol' && column === 'RTPC') return { width: '1.8%' }
+    if (sourceType === 'pol' && column === 'RTPC') return { width: '2.34%' }
     if (column === 'Main' || column === 'RTPC' || column === 'HPR' || column === 'Head Rinse') return { width: '6%' }
     if (column === 'End By') return { width: '10%' }
     if (column === 'Platen RPM' || column === 'Head RPM') return { width: '8%' }
-    if (sourceType === 'pol' && column === 'Head Sweep') return { width: '5.5%' }
+    if (sourceType === 'pol' && column === 'Head Sweep') return { width: '6.6%' }
     if (column === 'Head Sweep') return { width: '5%' }
     if (column.startsWith('Z') || column === 'RR State') return { width: '7%' }
     if (sourceType === 'pol' && column.startsWith('L')) return { width: '3.85%' }
@@ -378,8 +380,8 @@ function setScrollRef(el: Element | null) {
   gap:8px;
   justify-content:flex-end;
 }
-.picker{ width:min(1180px, 96vw); }
-.picker.wide-picker{ width:min(1200px, 96vw); }
+.picker{ width:min(1416px, 96vw); }
+.picker.wide-picker{ width:min(1440px, 96vw); }
 .legacy-titlebar{
   display:flex;
   align-items:center;
@@ -512,14 +514,14 @@ function setScrollRef(el: Element | null) {
   cursor:pointer;
   line-height:18px;
   font-weight:800;
-  font-size:11px;
+  font-size:11.67px;
 }
-.polcon-picker .list-li,
 .polcon-picker .cell-time,
 .polcon-picker .head-cell,
 .polcon-picker .head-label{
   font-size:10px;
 }
+.polcon-picker .list-li{ font-size:10.67px; }
 .list-li.detail-row{ display:flex; align-items:center; overflow:hidden; }
 .list-li.active{ background:#0a246a; color:#fff; }
 .name-only,
@@ -554,8 +556,8 @@ function setScrollRef(el: Element | null) {
 .preview-table-large.polcon-preview.pol-preview td{ font-size:14px; font-weight:400; }
 .preview-table-large.polcon-preview th{ font-size:14px; font-weight:700; }
 .preview-table-large.polcon-preview .recipe-header-split{ white-space:pre-line; line-height:1.05; padding-left:2px; padding-right:2px; }
-.preview-table-large.polcon-preview .col-narrow-cell{ font-size:15px; }
-.preview-table-large.polcon-preview.pol-preview .col-narrow-cell{ font-size:13px; }
+.preview-table-large.polcon-preview .col-narrow-cell{ font-size:14.5px; }
+.preview-table-large.polcon-preview.pol-preview .col-narrow-cell{ font-size:12.5px; }
 .picker-preview-title{ font-size:13px; }
 .recipe-cell-text{ display:block; }
 .preview-table-large.pol-preview .recipe-cell-text{ line-height:1.05; }
@@ -588,6 +590,17 @@ function setScrollRef(el: Element | null) {
   border:solid #000;
   border-width:0 2px 2px 0;
   transform:rotate(45deg);
+}
+.recipe-checkbox-small :deep(.recipe-check-box){
+  width:10px;
+  height:10px;
+}
+.recipe-checkbox-small :deep(.recipe-check-box.checked)::after{
+  left:2px;
+  top:0px;
+  width:3px;
+  height:6px;
+  border-width:0 1px 1px 0;
 }
 :deep(.recipe-check-box.disabled){
   background:rgb(236, 233, 216);
