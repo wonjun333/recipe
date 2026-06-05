@@ -1,6 +1,6 @@
 <template>
   <div v-if="open" class="w97-modal-overlay">
-    <div class="w97-modal picker" :class="{ 'polcon-picker': isPolConPicker }">
+    <div class="w97-modal picker" :class="{ 'polcon-picker': isPolConPicker, 'wide-picker': wide }">
       <div class="w97-modal-titlebar">
         <div class="w97-modal-title">
           <span class="title-prefix">Select</span>
@@ -108,7 +108,7 @@
                       :key="c"
                       :class="recipeHeaderClass(c)"
                       :style="previewColumnStyle(c)"
-                >{{ c }}</th>
+                >{{ recipeHeaderText(c) }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -170,6 +170,7 @@ const props = defineProps({
     type: Object as PropType<{ name: number; modifiedAt: number }>,
     default: () => ({ name: 300, modifiedAt: 82 }),
   },
+  wide: { type: Boolean, default: false },
 })
 
 const emit = defineEmits<{
@@ -219,9 +220,16 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;')
 }
 function recipeHeaderClass(column: string) {
+  const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
   return {
     'recipe-header-emphasis': ['Wafer RPM', 'Brush RPM', 'IPA Flow', 'N2 Vapor Carrier Flow'].includes(column),
+    'recipe-header-split': sourceType === 'pol' && column === 'RTPC',
   }
+}
+function recipeHeaderText(column: string) {
+  const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
+  if (sourceType === 'pol' && column === 'RTPC') return 'RT\nPC'
+  return column
 }
 function recipeCellClass(column: string, value: unknown, row?: Record<string, unknown>) {
   const text = String(value ?? '').trim()
@@ -294,11 +302,14 @@ function previewColumnStyle(column: string) {
   if (sourceType === 'pol' || sourceType === 'con') {
     if (column === '__index__') return { width: '26px' }
     if (column === 'Description') return { width: '14%' }
+    if (sourceType === 'pol' && column === 'RTPC') return { width: '1.8%' }
     if (column === 'Main' || column === 'RTPC' || column === 'HPR' || column === 'Head Rinse') return { width: '6%' }
     if (column === 'End By') return { width: '10%' }
     if (column === 'Platen RPM' || column === 'Head RPM') return { width: '8%' }
+    if (sourceType === 'pol' && column === 'Head Sweep') return { width: '5.5%' }
     if (column === 'Head Sweep') return { width: '5%' }
     if (column.startsWith('Z') || column === 'RR State') return { width: '7%' }
+    if (sourceType === 'pol' && column.startsWith('L')) return { width: '3.85%' }
     if (column.startsWith('L')) return { width: '3.5%' }
   }
 
@@ -368,6 +379,7 @@ function setScrollRef(el: Element | null) {
   justify-content:flex-end;
 }
 .picker{ width:min(1180px, 96vw); }
+.picker.wide-picker{ width:min(1200px, 96vw); }
 .legacy-titlebar{
   display:flex;
   align-items:center;
@@ -541,6 +553,7 @@ function setScrollRef(el: Element | null) {
 .preview-table-large.polcon-preview td{ font-size:16px; font-weight:400; }
 .preview-table-large.polcon-preview.pol-preview td{ font-size:14px; font-weight:400; }
 .preview-table-large.polcon-preview th{ font-size:14px; font-weight:700; }
+.preview-table-large.polcon-preview .recipe-header-split{ white-space:pre-line; line-height:1.05; padding-left:2px; padding-right:2px; }
 .preview-table-large.polcon-preview .col-narrow-cell{ font-size:15px; }
 .preview-table-large.polcon-preview.pol-preview .col-narrow-cell{ font-size:13px; }
 .picker-preview-title{ font-size:13px; }

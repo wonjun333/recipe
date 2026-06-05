@@ -214,6 +214,7 @@
       :list-mode="recipePickerListMode"
       :scroll-left="recipePickerScrollLeft"
       :col-widths="recipePickerColWidths"
+      :wide="jobEditMode"
       @apply-find="applyRecipePickerFind(true)"
       @item-click="onRecipePickerItemClick"
       @select="pickRecipeForJob"
