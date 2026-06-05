@@ -226,10 +226,12 @@ function recipeHeaderClass(column: string) {
 function recipeCellClass(column: string, value: unknown, row?: Record<string, unknown>) {
   const text = String(value ?? '').trim()
   const sourceKind = props.previewRecipe?.sourceKind ?? ''
+  const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
   const ui = recipeCellUi(column, row)
   return {
     'recipe-cell-preline': text.includes('\n'),
     'recipe-checkbox-cell': ui.kind === 'checkbox',
+    'col-narrow-cell': (sourceType === 'pol' || sourceType === 'con') && (column === 'Head Sweep' || column.startsWith('L')),
     'cell-cyan': ui.tone === 'cyan'
       || (sourceKind === 'megasonics' && column === 'Wafer RPM')
       || ((sourceKind === 'brush1' || sourceKind === 'brush2') && (column === 'Brush RPM' || column === 'Wafer RPM')),
@@ -270,7 +272,7 @@ function previewColumnStyle(column: string) {
   const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
 
   if (sourceKind === 'megasonics') {
-    if (column === '__index__') return { width: '52px' }
+    if (column === '__index__') return { width: '26px' }
     if (column === 'Description') return { width: '28%' }
     if (column === 'Time') return { width: '18%' }
     if (column === 'Wafer RPM') return { width: '22%' }
@@ -278,7 +280,7 @@ function previewColumnStyle(column: string) {
   }
 
   if (sourceKind === 'brush1' || sourceKind === 'brush2') {
-    if (column === '__index__') return { width: '4%' }
+    if (column === '__index__') return { width: '2%' }
     if (column === 'Description') return { width: '12%' }
     if (column === 'Time') return { width: '7%' }
     if (column === 'Brush RPM') return { width: '10%' }
@@ -290,23 +292,23 @@ function previewColumnStyle(column: string) {
   }
 
   if (sourceType === 'pol' || sourceType === 'con') {
-    if (column === '__index__') return { width: '52px' }
+    if (column === '__index__') return { width: '26px' }
     if (column === 'Description') return { width: '14%' }
     if (column === 'Main' || column === 'RTPC' || column === 'HPR' || column === 'Head Rinse') return { width: '6%' }
     if (column === 'End By') return { width: '10%' }
     if (column === 'Platen RPM' || column === 'Head RPM') return { width: '8%' }
-    if (column === 'Head Sweep') return { width: '10%' }
+    if (column === 'Head Sweep') return { width: '5%' }
     if (column.startsWith('Z') || column === 'RR State') return { width: '7%' }
-    if (column.startsWith('L')) return { width: '7%' }
+    if (column.startsWith('L')) return { width: '3.5%' }
   }
 
   if (sourceKind === 'vaporDryer') {
-    if (column === '__index__') return { width: '60px' }
+    if (column === '__index__') return { width: '30px' }
     if (column === 'Item') return { width: '34%' }
     if (column === 'Value') return { width: '58%' }
   }
 
-  if (column === '__index__') return { width: '52px' }
+  if (column === '__index__') return { width: '26px' }
   return {}
 }
 function setItemRef(id: string, el: Element | null) {
@@ -539,6 +541,8 @@ function setScrollRef(el: Element | null) {
 .preview-table-large.polcon-preview td{ font-size:16px; font-weight:400; }
 .preview-table-large.polcon-preview.pol-preview td{ font-size:14px; font-weight:400; }
 .preview-table-large.polcon-preview th{ font-size:14px; font-weight:700; }
+.preview-table-large.polcon-preview .col-narrow-cell{ font-size:15px; }
+.preview-table-large.polcon-preview.pol-preview .col-narrow-cell{ font-size:13px; }
 .picker-preview-title{ font-size:13px; }
 .recipe-cell-text{ display:block; }
 .preview-table-large.pol-preview .recipe-cell-text{ line-height:1.05; }
