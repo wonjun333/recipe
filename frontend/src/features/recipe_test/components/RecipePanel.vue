@@ -119,7 +119,18 @@
         </div>
 
         <div class="grid-wrap" v-if="selectedRecipeSingle">
-          <div class="recipe-meta" v-if="selectedRecipeSingle.modifiedAt">Modified Time: <strong>{{ selectedRecipeSingle.modifiedAt }}</strong></div>
+          <div class="preview-toolbar">
+            <div class="recipe-meta" v-if="selectedRecipeSingle.modifiedAt">Modified Time: <strong>{{ selectedRecipeSingle.modifiedAt }}</strong></div>
+            <div class="preview-toolbar-spacer"></div>
+            <button
+              v-if="displayPreviewColumns.length"
+              class="win-btn iconbtn copy-preview-btn"
+              type="button"
+              title="Copy preview table"
+              aria-label="copy preview table"
+              @click.stop="copyPreviewTable"
+            >⧉</button>
+          </div>
           <table
             v-if="displayPreviewColumns.length"
             class="legacy-table preview-table-large"
@@ -301,6 +312,78 @@ function recipeCellHtml(column: string, value: unknown, row?: Record<string, unk
   const lines = text.split('\n')
   if (lines.length <= 1) return formatRecipeLine(text)
   return lines.map(formatRecipeLine).join('<br>')
+}
+
+function clipboardCellText(column: string, row: Record<string, unknown>) {
+  const ui = recipeCellUi(column, row)
+  if (ui.kind === 'checkbox') return ui.checked ? '☑' : '☐'
+  return String(row[column] ?? '')
+}
+
+function clipboardCellStyle(column: string, row?: Record<string, unknown>) {
+  const ui = recipeCellUi(column, row)
+  const styles = [
+    'border:1px solid #a9a9a9',
+    'padding:6px 8px',
+    'white-space:pre-line',
+    'vertical-align:middle',
+  ]
+  const bgByTone: Record<string, string> = {
+    cyan: 'rgb(57, 230, 255)',
+    green: 'rgb(0, 255, 0)',
+    yellow: 'rgb(255, 238, 0)',
+    disabled: 'rgb(236, 233, 216)',
+    white: '#fff',
+    error: 'rgb(255, 102, 102)',
+  }
+  if (bgByTone[String(ui.tone ?? '')]) styles.push(`background:${bgByTone[String(ui.tone)]}`)
+  if (ui.kind === 'checkbox' || ui.align === 'center' || ['L1', 'L2', 'L3', 'L4'].includes(column)) styles.push('text-align:center')
+  return styles.join(';')
+}
+
+function buildPreviewClipboardPayload() {
+  const recipe = props.selectedRecipeSingle
+  if (!recipe || !displayPreviewColumns.value.length) return { html: '', tsv: '' }
+  const headers = ['#', ...displayPreviewColumns.value]
+  const tsvRows = [
+    headers.join('\t'),
+    ...recipe.rows.map((row, idx) => [
+      String(idx + 1),
+      ...displayPreviewColumns.value.map(column => clipboardCellText(column, row).replace(/\s*\n\s*/g, ' / ')),
+    ].join('\t')),
+  ]
+  const headerHtml = headers.map(header => `<th style="border:1px solid #a9a9a9;padding:6px 8px;background:rgb(212, 208, 200);font-weight:900;text-align:center">${escapeHtml(header)}</th>`).join('')
+  const bodyHtml = recipe.rows.map((row, idx) => {
+    const cells = [
+      `<td style="border:1px solid #a9a9a9;padding:6px 8px;background:rgb(212, 208, 200);font-weight:900;text-align:center">${idx + 1}</td>`,
+      ...displayPreviewColumns.value.map(column => {
+        const text = escapeHtml(clipboardCellText(column, row)).replace(/\n/g, '<br>')
+        return `<td style="${clipboardCellStyle(column, row)}">${text}</td>`
+      }),
+    ]
+    return `<tr>${cells.join('')}</tr>`
+  }).join('')
+  const html = `<table style="border-collapse:collapse;table-layout:fixed;font-family:Arial,sans-serif;font-size:14px"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`
+  return { html, tsv: tsvRows.join('\n') }
+}
+
+async function copyPreviewTable() {
+  const { html, tsv } = buildPreviewClipboardPayload()
+  if (!html) return
+  try {
+    if ('ClipboardItem' in window && navigator.clipboard?.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([tsv], { type: 'text/plain' }),
+        }),
+      ])
+      return
+    }
+  } catch {}
+  try {
+    await navigator.clipboard?.writeText(tsv)
+  } catch {}
 }
 
 const headerCount = computed(() => Math.max(props.recipeCols.length, 1))
@@ -611,10 +694,21 @@ onBeforeUnmount(() => {
   max-height:none;
   margin-top:8px;
 }
-.recipe-meta{
-  padding:6px 8px;
+.preview-toolbar{
+  display:flex;
+  align-items:center;
+  gap:8px;
   border-bottom:1px solid #d1d5db;
   background:#f8fafc;
+}
+.preview-toolbar-spacer{
+  flex:1 1 auto;
+}
+.copy-preview-btn{
+  margin-right:6px;
+}
+.recipe-meta{
+  padding:6px 8px;
   font-size:12px;
   font-weight:900;
 }
@@ -689,10 +783,10 @@ onBeforeUnmount(() => {
   font-weight:400;
 }
 .preview-table-large.polcon-preview .recipe-lane-cell{
-  font-size:16.67px;
+  font-size:15.34px;
 }
 .preview-table-large.polcon-preview.pol-preview .recipe-lane-cell{
-  font-size:14.67px;
+  font-size:13.34px;
 }
 .preview-table-large th{
   font-size:18px;

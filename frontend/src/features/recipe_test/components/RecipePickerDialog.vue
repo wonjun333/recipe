@@ -226,13 +226,25 @@ function recipeHeaderClass(column: string) {
   const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
   return {
     'recipe-header-emphasis': ['Wafer RPM', 'Brush RPM', 'IPA Flow', 'N2 Vapor Carrier Flow'].includes(column),
-    'recipe-header-split': sourceType === 'pol' && column === 'RTPC',
+    'recipe-header-split': (sourceType === 'pol' && column === 'RTPC') || isZoneStateColumn(column),
+    'recipe-col-center': isCenteredPolConColumn(column),
   }
 }
 function recipeHeaderText(column: string) {
   const sourceType = String((props.previewRecipe as any)?.meta?.sourceType ?? '')
   if (sourceType === 'pol' && column === 'RTPC') return 'RT\nPC'
+  if (isZoneStateColumn(column)) return column.replace(' State', '\nState')
   return column
+}
+function isZoneStateColumn(column: string) {
+  return column === 'RR State' || /^Z(?:[1-9]|1[01]) State$/.test(column)
+}
+function isCenteredPolConColumn(column: string) {
+  return column === 'End By'
+    || column === 'Platen RPM'
+    || column === 'Head RPM'
+    || isZoneStateColumn(column)
+    || ['L1', 'L2', 'L3', 'L4'].includes(column)
 }
 function recipeCellClass(column: string, value: unknown, row?: Record<string, unknown>) {
   const text = String(value ?? '').trim()
@@ -245,6 +257,8 @@ function recipeCellClass(column: string, value: unknown, row?: Record<string, un
     'recipe-checkbox-cell': ui.kind === 'checkbox',
     'recipe-checkbox-small': ui.kind === 'checkbox' && isSmallCheckboxColumn,
     'col-narrow-cell': (sourceType === 'pol' || sourceType === 'con') && (column === 'Head Sweep' || column.startsWith('L')),
+    'recipe-lane-cell': ['L1', 'L2', 'L3', 'L4'].includes(column),
+    'recipe-col-center': isCenteredPolConColumn(column),
     'cell-cyan': ui.tone === 'cyan'
       || (sourceKind === 'megasonics' && column === 'Wafer RPM')
       || ((sourceKind === 'brush1' || sourceKind === 'brush2') && (column === 'Brush RPM' || column === 'Wafer RPM')),
@@ -315,7 +329,7 @@ function previewColumnStyle(column: string) {
     if (column === 'Platen RPM' || column === 'Head RPM') return { width: '6.4%' }
     if (sourceType === 'pol' && column === 'Head Sweep') return { width: '7.92%' }
     if (column === 'Head Sweep') return { width: '6%' }
-    if (column.startsWith('Z') || column === 'RR State') return { width: '7%' }
+    if (isZoneStateColumn(column)) return { width: '5.6%' }
     if (sourceType === 'pol' && column.startsWith('L')) return { width: '4.62%' }
     if (column.startsWith('L')) return { width: '4.2%' }
   }
@@ -385,8 +399,8 @@ function setScrollRef(el: Element | null) {
   gap:8px;
   justify-content:flex-end;
 }
-.picker{ width:min(1416px, 96vw); }
-.picker.wide-picker{ width:min(1440px, 96vw); }
+.picker{ width:min(1558px, 96vw); }
+.picker.wide-picker{ width:min(1584px, 96vw); }
 .legacy-titlebar{
   display:flex;
   align-items:center;
@@ -563,8 +577,11 @@ function setScrollRef(el: Element | null) {
 .preview-table-large.polcon-preview.pol-preview td{ font-size:14px; font-weight:400; }
 .preview-table-large.polcon-preview th{ font-size:14px; font-weight:700; }
 .preview-table-large.polcon-preview .recipe-header-split{ white-space:pre-line; line-height:1.05; padding-left:2px; padding-right:2px; }
+.preview-table-large .recipe-col-center{ text-align:center; }
 .preview-table-large.polcon-preview .col-narrow-cell{ font-size:14.5px; }
 .preview-table-large.polcon-preview.pol-preview .col-narrow-cell{ font-size:12.5px; }
+.preview-table-large.polcon-preview .recipe-lane-cell{ font-size:13.17px; }
+.preview-table-large.polcon-preview.pol-preview .recipe-lane-cell{ font-size:11.17px; }
 .picker-preview-title{ font-size:13px; }
 .recipe-cell-text{ display:block; }
 .preview-table-large.pol-preview .recipe-cell-text{ line-height:1.05; }
