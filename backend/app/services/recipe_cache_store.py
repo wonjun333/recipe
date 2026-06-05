@@ -320,7 +320,6 @@ def _ensure_schema_postgres(conn) -> None:
             to_eqp_team TEXT NOT NULL DEFAULT ''
         )
         """,
-        "CREATE INDEX IF NOT EXISTS idx_recipe_history_created ON recipe_history (created_at)",
         """
         CREATE TABLE IF NOT EXISTS recipe_history_comments (
             group_key TEXT PRIMARY KEY,
@@ -363,6 +362,7 @@ def _ensure_schema_postgres(conn) -> None:
     ]:
         if not _pg_column_exists(conn, 'recipe_history', col):
             conn.execute(f'ALTER TABLE recipe_history ADD COLUMN {col} {definition}')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_recipe_history_created ON recipe_history (created_at)')
     conn.commit()
 
 

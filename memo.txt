@@ -56,3 +56,31 @@ curl "http://localhost:8000/recipe-inventory/latest-version?eqpId=<설비ID>&sou
 설정 버튼을 누르면 사용자가 본인의 Line, 분임조 를 선택할수 있도록 할거고, 이거는 db화 할거야.
 그래서 사용자가 설정을 통해서 db를 수정할수 있도록 하고싶어. db를 수정하는게 risk가 있다면 그 설정들을 저장해서 나중에 그사람이 로그인했을때, 그 line과 분임조가 불러와지도록 개발해줘.
 Line과 분임조는 controls 클래스에 있는 값들 중에 선택하도록 하면돼.
+
+
+
+1.현재 my history에 있을 db에 대해서 설명할게.
+---
+이름 /knoxid /from설비/ from설비_분임조 / to설비 / to설비_분임조 / action / 시간 / RecipeName / Detail / Comment / CommentUser
+---
+가 있어야해. (추후 추가될수있어)
+2. front에서 보고싶은 정보는 아래와 같아
+---
+이름 / From 설비 / Action / To 설비 / 시간 / Recipe Name / Detail / Comment
+---
+이 보여졌으면 좋겠어.
+3. 각 열에 보여줬으면 하는 내용을 말해줄게
+---
+a. 이름 : Action을 한 사용자 이름 (saml Username)
+b. From 설비 : front는 {from설비}({from설비_분임조}) 로 표현
+c. Action : 지금 설정 유지
+d. To 설비 : front는 {to설비}({to설비_분임조}) 로 표현
+e. 시간 : 지금 설정 유지
+f. Recipe Name : 지금 설정 유지
+g. Detail : 지금 설정 유지
+h. Comment : 지금 설정 유지. 사용자가 적어서 엔터 치면 db에 저장되도록
+---
+
+이중에 front에 추가 됐으면 하는것
+- 이름 행에 사용자가 마우스를 올리면 조그만 팝over로 그 행의 knoxid가 보이도록
+- comment 행에 사용자가 마우스를 올리면 조그만 팝오버로 그 행의 commentUser가보이도록
