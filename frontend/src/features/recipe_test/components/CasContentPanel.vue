@@ -147,6 +147,8 @@ function setRootRef(el: Element | null) {
   box-shadow:0 0 0 3px rgba(53,119,255,.16);
 }
 .cas-win97{
+  width:max-content;
+  box-sizing:border-box;
   background:#d4d0c8;
   border:1px solid #8d8d8d;
   padding:8px;
@@ -187,6 +189,7 @@ function setRootRef(el: Element | null) {
 .cas-tabs{
   display:flex;
   gap:4px;
+  width:max-content;
 }
 .win-tab{
   background:#c0c0c0;

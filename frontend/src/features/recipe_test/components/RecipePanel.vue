@@ -129,7 +129,12 @@
               title="Copy preview table"
               aria-label="copy preview table"
               @click.stop="copyPreviewTable"
-            >⧉</button>
+            >
+              <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="10" rx="2"></rect>
+                <path d="M6 14H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
           </div>
           <table
             v-if="displayPreviewColumns.length"
@@ -309,15 +314,30 @@ function recipeCellHtml(column: string, value: unknown, row?: Record<string, unk
     return `<span class="recipe-check-box ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}"></span>`
   }
   const text = String(value ?? '')
+  if (['L1', 'L2', 'L3', 'L4'].includes(column)) {
+    return formatSlurryLaneHtml(text)
+  }
   const lines = text.split('\n')
   if (lines.length <= 1) return formatRecipeLine(text)
+  return lines.map(formatRecipeLine).join('<br>')
+}
+
+function formatSlurryLaneHtml(value: string) {
+  const text = String(value ?? '')
+  const normalized = text.replace(/(\d(?:[\d.]*)?)\s*\n\s*(ml\/min)\b/gi, '$1 $2')
+  const lines = normalized.split('\n')
+  if (lines.length <= 1) return formatRecipeLine(normalized)
   return lines.map(formatRecipeLine).join('<br>')
 }
 
 function clipboardCellText(column: string, row: Record<string, unknown>) {
   const ui = recipeCellUi(column, row)
   if (ui.kind === 'checkbox') return ui.checked ? '☑' : '☐'
-  return String(row[column] ?? '')
+  const text = String(row[column] ?? '')
+  if (['L1', 'L2', 'L3', 'L4'].includes(column)) {
+    return text.replace(/(\d(?:[\d.]*)?)\s*\n\s*(ml\/min)\b/gi, '$1 $2')
+  }
+  return text
 }
 
 function clipboardCellStyle(column: string, row?: Record<string, unknown>) {
@@ -706,6 +726,16 @@ onBeforeUnmount(() => {
 }
 .copy-preview-btn{
   margin-right:6px;
+}
+.copy-preview-icon{
+  width:16px;
+  height:16px;
+  display:block;
+  fill:none;
+  stroke:#111827;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
 }
 .recipe-meta{
   padding:6px 8px;

@@ -108,7 +108,7 @@
 
       <JobFileListPanel
         v-model="jobQueryModel"
-        :pane-focus="activePane==='jobList'"
+        :pane-focus="activePane==='jobList' && keyboardControlMode==='job'"
         :attention="jobListAttention"
         :panel-style="jobPanelStyle"
         :query-class="jobClass"
@@ -135,7 +135,7 @@
 
       <JobContentPanel
         :show="showJobContent"
-        :pane-focus="activePane==='jobContent'"
+        :pane-focus="activePane==='jobContent' && keyboardControlMode==='job'"
         :panel-style="contentPaneStyle"
         :pane-height="paneHeight"
         :job-name="selectedJobDisplayName"
@@ -1441,10 +1441,8 @@ const casContentStyle = computed(() => {
   if (!casContentVisible.value) {
     return { height: listPaneHeight, width: '0px', flexBasis: '0px' }
   }
-  const w = activePane.value === 'casContent'
-    ? 'clamp(340px, 26vw, 460px)'
-    : 'clamp(340px, 26vw, 460px)'
-  return { height: listPaneHeight, width: w, flexBasis: w }
+  const w = 'max-content'
+  return { height: listPaneHeight, width: w, flexBasis: w, flexShrink: '0' }
 })
 
 const jobPanelStyle = computed(() => {
@@ -1459,7 +1457,10 @@ const jobPanelStyle = computed(() => {
 })
 
 const contentPaneStyle = computed(() => ({
-  flexGrow: activePane.value === 'jobContent' ? '2.1' : '1',
+  flexGrow: '0',
+  width: 'max-content',
+  flexBasis: 'max-content',
+  flexShrink: '0',
 }))
 
 /** cas tab */
@@ -1874,14 +1875,10 @@ function jobSearchInCasContent(jobName: string) {
       : matchedJobs.map(j => displayJobName(j.jobName)).sort(naturalCompare).join(', ')
   )
 
-  keyboardControlMode.value = 'job'
-
   if (matchedIds.length === 1) {
-    activePane.value = 'jobContent'
     void scrollIntoView(jobRefs, matchedIds[0])
     void fetchJobContent(matchedIds[0])
   } else {
-    activePane.value = 'jobList'
     void scrollIntoView(jobRefs, matchedIds[0])
   }
 }
