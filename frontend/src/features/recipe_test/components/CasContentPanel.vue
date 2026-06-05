@@ -157,6 +157,7 @@ function setRootRef(el: Element | null) {
   gap:8px;
   position:relative;
   height:100%;
+  min-height:674px;
 }
 .cas-bar{
   background:#d4d0c8;

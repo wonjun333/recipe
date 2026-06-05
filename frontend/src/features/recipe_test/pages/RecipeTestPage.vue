@@ -1429,10 +1429,10 @@ const isCasInactive = computed(() => activePane.value !== 'casList' && activePan
 const singleLinkedJobMode = computed(() => !!casSelectedSingle.value && selectedJobs.size === 1)
 
 const casPanelStyle = computed(() => {
-  let w = 'clamp(390px, 25vw, 500px)'
-  let minW = '390px'
-  if (isCasInactive.value) { w = 'clamp(340px, 20vw, 400px)'; minW = '340px' }
-  if (isJobFocused.value || activePane.value === 'recipeArea') { w = 'clamp(340px, 20vw, 400px)'; minW = '340px' }
+  let w = 'clamp(351px, 22.5vw, 450px)'
+  let minW = '351px'
+  if (isCasInactive.value) { w = 'clamp(306px, 18vw, 360px)'; minW = '306px' }
+  if (isJobFocused.value || activePane.value === 'recipeArea') { w = 'clamp(306px, 18vw, 360px)'; minW = '306px' }
 
   return { height: listPaneHeight, width: w, flexBasis: w, minWidth: minW, flexShrink: '0' }
 })
@@ -1442,12 +1442,12 @@ const casContentStyle = computed(() => {
     return { height: listPaneHeight, width: '0px', flexBasis: '0px' }
   }
   const w = 'max-content'
-  return { height: listPaneHeight, width: w, flexBasis: w, flexShrink: '0' }
+  return { height: '674px', width: w, flexBasis: w, flexShrink: '0' }
 })
 
 const jobPanelStyle = computed(() => {
   let w = activePane.value === 'jobList'
-    ? 'clamp(560px, 34vw, 700px)'
+    ? 'clamp(599px, 36.5vw, 750px)'
     : 'clamp(400px, 20vw, 500px)'
 
   if (singleLinkedJobMode.value && showJobContent.value) {

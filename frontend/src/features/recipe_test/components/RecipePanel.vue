@@ -131,8 +131,11 @@
               @click.stop="copyPreviewTable"
             >
               <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="8" y="8" width="10" height="10" rx="2"></rect>
-                <path d="M6 14H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
+                <path d="M9 4.75h6"></path>
+                <path d="M9.75 3h4.5c.69 0 1.25.56 1.25 1.25v1.5c0 .69-.56 1.25-1.25 1.25h-4.5C9.06 7 8.5 6.44 8.5 5.75v-1.5C8.5 3.56 9.06 3 9.75 3Z"></path>
+                <path d="M7 5.5H6A2.5 2.5 0 0 0 3.5 8v10A2.5 2.5 0 0 0 6 20.5h12A2.5 2.5 0 0 0 20.5 18V8A2.5 2.5 0 0 0 18 5.5h-1"></path>
+                <path d="M8 11h8"></path>
+                <path d="M8 15h5"></path>
               </svg>
             </button>
           </div>
@@ -726,6 +729,9 @@ onBeforeUnmount(() => {
 }
 .copy-preview-btn{
   margin-right:6px;
+  background:#eef2f7;
+  border:1px solid #9aa4b2;
+  border-radius:4px;
 }
 .copy-preview-icon{
   width:16px;
@@ -733,7 +739,7 @@ onBeforeUnmount(() => {
   display:block;
   fill:none;
   stroke:#111827;
-  stroke-width:2;
+  stroke-width:1.8;
   stroke-linecap:round;
   stroke-linejoin:round;
 }
