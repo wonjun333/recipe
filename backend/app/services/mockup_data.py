@@ -206,6 +206,62 @@ def get_mock_file_text(file_name: str) -> str:
     return f"; [MOCK] file not found: {file_name}\r\n"
 
 
+def get_mock_source_recipe_text(recipe_name: str) -> str:
+    """Generate parseable mock text for text-based recipe files (.meg/.br/.dryr/.cln)."""
+    name = recipe_name.strip()
+    lower = name.lower()
+    if lower.endswith('.meg'):
+        return (
+            f"Recipe Comments: [MOCK] {name}\r\n"
+            "Step 1:\r\n"
+            "  Step Comments: Main\r\n"
+            "  Time: 60\r\n"
+            "  Wafer RPM: 100\r\n"
+            "  Meg Power: 50\r\n"
+            "Step 2:\r\n"
+            "  Step Comments: Rinse\r\n"
+            "  Time: 30\r\n"
+            "  Wafer RPM: 50\r\n"
+            "  Meg Power: 0\r\n"
+        )
+    if lower.endswith('.br'):
+        return (
+            f"Recipe Comments: [MOCK] {name}\r\n"
+            "Step 1:\r\n"
+            "  Step Comments: Scrub\r\n"
+            "  Time: 60\r\n"
+            "  Brush RPM: 400\r\n"
+            "  Brush Pos: Closed\r\n"
+            "  Brush Gap: 2.5\r\n"
+            "  Wafer RPM: 30\r\n"
+            "  DI Water On/Off: On\r\n"
+            "  DIW Brush Flow Rate: 300\r\n"
+            "Step 2:\r\n"
+            "  Step Comments: Rinse\r\n"
+            "  Time: 30\r\n"
+            "  Brush Pos: Open\r\n"
+            "  Wafer RPM: 30\r\n"
+            "  DI Water On/Off: On\r\n"
+            "  DIW Brush Flow Rate: 500\r\n"
+        )
+    if lower.endswith('.dryr') or lower.endswith('.drpr'):
+        return (
+            f"Recipe Comments: [MOCK] {name}\r\n"
+            "Step 1:\r\n"
+            "  IPA Flow: 8\r\n"
+            "  Vapor Carrier Flow: 10\r\n"
+            "  Motion Index: 2\r\n"
+        )
+    if lower.endswith('.cln'):
+        return (
+            f"Recipe Comments: [MOCK] {name}\r\n"
+            "Step 1:\r\n"
+            "  Step Comments: Clean\r\n"
+            "  Time: 45\r\n"
+        )
+    return f"; [MOCK] {name}\r\n"
+
+
 # ---------------------------------------------------------------------------
 # Recipe source list items  (FTP mockup for RECIPE_SOURCE_CONFIG paths)
 # ---------------------------------------------------------------------------

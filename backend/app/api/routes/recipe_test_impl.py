@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
 from app.config import MOCK_MODE, POSTGRES_URL
-from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_RESULT, MOCK_SOURCE_ITEMS, get_mock_file_text
+from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_RESULT, MOCK_SOURCE_ITEMS, get_mock_file_text, get_mock_source_recipe_text
 from app.services.job_parser import parse_job_text
 from app.services.ftp_credentials import load_eqp_ip as db_load_eqp_ip
 from app.services.file_ops_service import (
@@ -717,6 +717,49 @@ def load_pol_system_cfg(eqp_id: str) -> dict[str, Any]:
     except Exception:
         return {}
 
+def _build_mock_polcon_preview(recipe_id: str, recipe_name: str, modified_at: str, source_kind: str) -> dict[str, Any]:
+    is_con = recipe_name.lower().endswith('.con')
+    if is_con:
+        columns = ['Description', 'End By', 'Platen RPM', 'Head RPM', 'Pad Cond Sweep', 'Sync', 'Pad Cond Downforce', 'HPR', 'Rinse', 'L1', 'L2', 'L3', 'L4']
+        rows = [
+            {'Description': '[MOCK] Step 1', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
+             'Pad Cond Sweep': 'Sine', 'Sync': 'Yes', 'Pad Cond Downforce': '6.0 lbs',
+             'HPR': 'Off', 'Rinse': 'Off', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
+            {'Description': '[MOCK] Step 2', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
+             'Pad Cond Sweep': 'Sine', 'Sync': 'No', 'Pad Cond Downforce': '6.0 lbs',
+             'HPR': 'Off', 'Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
+        ]
+    else:
+        columns = ['Description', 'End By', 'Platen RPM', 'Head RPM', 'Head Sweep',
+                   'RR State', 'Z1 State', 'Z2 State', 'Z3 State', 'Z4 State', 'Z5 State',
+                   'HPR', 'Head Rinse', 'L1', 'L2', 'L3', 'L4']
+        rows = [
+            {'Description': '[MOCK] Step 1', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
+             'Head Sweep': 'Sine', 'RR State': '1.8 psi', 'Z1 State': '6.2 psi', 'Z2 State': '5.8 psi',
+             'Z3 State': '6.0 psi', 'Z4 State': '5.5 psi', 'Z5 State': '5.0 psi',
+             'HPR': 'Off', 'Head Rinse': 'Off', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
+            {'Description': '[MOCK] Step 2', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
+             'Head Sweep': 'Sine', 'RR State': '1.8 psi', 'Z1 State': '6.2 psi', 'Z2 State': '5.8 psi',
+             'Z3 State': '6.0 psi', 'Z4 State': '5.5 psi', 'Z5 State': '5.0 psi',
+             'HPR': 'Off', 'Head Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
+            {'Description': '[MOCK] Step 3', 'End By': 'Time', 'Platen RPM': '30', 'Head RPM': '30',
+             'Head Sweep': 'No Sweep', 'RR State': '0.5 psi', 'Z1 State': '0.5 psi', 'Z2 State': '0.5 psi',
+             'Z3 State': '0.5 psi', 'Z4 State': '0.5 psi', 'Z5 State': '0.5 psi',
+             'HPR': 'On', 'Head Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
+        ]
+    return {
+        'recipe': {
+            'id': recipe_id,
+            'name': recipe_name,
+            'modifiedAt': modified_at,
+            'sourceKind': source_kind,
+            'columns': columns,
+            'rows': rows,
+            'meta': {'sourceType': 'con' if is_con else 'pol', 'stepCount': len(rows)},
+        }
+    }
+
+
 def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, recipe_name: str) -> dict[str, Any]:
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:
@@ -741,6 +784,17 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
                 ],
             }
         }
+
+    if MOCK_MODE:
+        lower = recipe_name.lower()
+        if lower.endswith('.pol') or lower.endswith('.con'):
+            return _build_mock_polcon_preview(recipe_id, recipe_name, modified_at, source_kind)
+        mock_text = get_mock_source_recipe_text(recipe_name)
+        mock_bytes = mock_text.encode('utf-8')
+        preview = build_recipe_preview_from_bytes(recipe_id, recipe_name, modified_at, source_kind, mock_bytes, {'eqpId': eqp_id})
+        if preview:
+            return preview
+        return create_no_preview_recipe(recipe_id, recipe_name, modified_at, source_kind)
 
     ftp_failed = False
     try:
