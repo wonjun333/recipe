@@ -262,6 +262,7 @@ function recipeCellClass(column: string, value: unknown, row?: Record<string, un
   const ui = recipeCellUi(column, row)
   return {
     'recipe-cell-preline': text.includes('\n'),
+    'recipe-lane-cell': ['L1', 'L2', 'L3', 'L4'].includes(column),
     'recipe-checkbox-cell': ui.kind === 'checkbox',
     'cell-cyan': ui.tone === 'cyan'
       || (sourceKind === 'megasonics' && column === 'Wafer RPM')
@@ -686,6 +687,12 @@ onBeforeUnmount(() => {
 .preview-table-large.polcon-preview.pol-preview td{
   font-size:16px;
   font-weight:400;
+}
+.preview-table-large.polcon-preview .recipe-lane-cell{
+  font-size:16.67px;
+}
+.preview-table-large.polcon-preview.pol-preview .recipe-lane-cell{
+  font-size:14.67px;
 }
 .preview-table-large th{
   font-size:18px;

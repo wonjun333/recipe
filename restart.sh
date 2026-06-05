@@ -60,8 +60,9 @@ if [ ! -d node_modules ]; then
     echo "  Node 의존성 설치 중 (최초 1회)..."
     npm install --omit=dev --prefer-offline < /dev/null >> "$LOG_DIR/saml.log" 2>&1
 fi
+echo "=== SAML restart $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$LOG_DIR/saml.log"
 nohup npm start \
-    < /dev/null > "$LOG_DIR/saml.log" 2>&1 &
+    < /dev/null >> "$LOG_DIR/saml.log" 2>&1 &
 echo "  PID: $!"
 
 # ── 완료 ─────────────────────────────────────────────────────────

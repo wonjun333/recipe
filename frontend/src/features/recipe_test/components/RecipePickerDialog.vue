@@ -77,11 +77,11 @@
                   :ref="(el) => setItemRef(r.id, el)"
                 >
                   <template v-if="listMode === 'detail'">
-                    <span class="cell-name name-col" :style="{ width: colWidths.name + 'px' }" :title="displayListName(r.name, r.sourceKind)">{{ displayListName(r.name, r.sourceKind) }}</span>
+                    <span class="cell-name name-col" :style="{ width: listNameCellWidth + 'px' }" :title="displayListName(r.name, r.sourceKind)">{{ displayListName(r.name, r.sourceKind) }}</span>
                     <span class="cell-time time-col" :style="{ width: colWidths.modifiedAt + 'px' }">{{ r.modifiedAt || '' }}</span>
                   </template>
                   <template v-else>
-                    <span class="name-only" :style="{ width: colWidths.name + 'px' }" :title="displayListName(r.name, r.sourceKind)">{{ displayListName(r.name, r.sourceKind) }}</span>
+                    <span class="name-only" :style="{ width: listNameCellWidth + 'px' }" :title="displayListName(r.name, r.sourceKind)">{{ displayListName(r.name, r.sourceKind) }}</span>
                   </template>
                 </li>
               </ul>
@@ -195,7 +195,9 @@ const firstPickerKind = computed(() => {
 })
 const isPolConPicker = computed(() => ['polishRecipe', 'conditionRecipe', 'exSituCondition', 'specialExSitu'].includes(String(firstPickerKind.value)))
 const isPolPreview = computed(() => String((props.previewRecipe as any)?.meta?.sourceType ?? '') === 'pol')
+const listItemInlinePadding = 8
 const columnBlockWidth = computed(() => ((props.listMode === 'detail' ? props.colWidths.name + props.colWidths.modifiedAt : props.colWidths.name) + 8))
+const listNameCellWidth = computed(() => Math.max(0, props.colWidths.name - listItemInlinePadding))
 const displayPreviewColumns = computed(() => visiblePreviewColumns(props.previewRecipe))
 
 function stripKnownRecipeExt(name: unknown, sourceKind?: RecipeSourceKind) {
@@ -256,6 +258,7 @@ function recipeCellClass(column: string, value: unknown, row?: Record<string, un
     'cell-yellow': ui.tone === 'yellow',
     'cell-disabled': ui.tone === 'disabled',
     'cell-white': ui.tone === 'white',
+    'cell-error': ui.tone === 'error',
   }
 }
 function formatRecipeLine(line: string) {
@@ -306,14 +309,15 @@ function previewColumnStyle(column: string) {
     if (column === '__index__') return { width: '26px' }
     if (column === 'Description') return { width: '14%' }
     if (sourceType === 'pol' && column === 'RTPC') return { width: '2.34%' }
-    if (column === 'Main' || column === 'RTPC' || column === 'HPR' || column === 'Head Rinse') return { width: '6%' }
+    if (column === 'Main' || column === 'HPR' || column === 'Head Rinse') return { width: '4.8%' }
+    if (column === 'RTPC') return { width: '6%' }
     if (column === 'End By') return { width: '10%' }
-    if (column === 'Platen RPM' || column === 'Head RPM') return { width: '8%' }
-    if (sourceType === 'pol' && column === 'Head Sweep') return { width: '6.6%' }
-    if (column === 'Head Sweep') return { width: '5%' }
+    if (column === 'Platen RPM' || column === 'Head RPM') return { width: '6.4%' }
+    if (sourceType === 'pol' && column === 'Head Sweep') return { width: '7.92%' }
+    if (column === 'Head Sweep') return { width: '6%' }
     if (column.startsWith('Z') || column === 'RR State') return { width: '7%' }
-    if (sourceType === 'pol' && column.startsWith('L')) return { width: '3.85%' }
-    if (column.startsWith('L')) return { width: '3.5%' }
+    if (sourceType === 'pol' && column.startsWith('L')) return { width: '4.62%' }
+    if (column.startsWith('L')) return { width: '4.2%' }
   }
 
   if (sourceKind === 'vaporDryer') {
@@ -509,8 +513,10 @@ function setScrollRef(el: Element | null) {
 }
 .picker-scroll{ height:220px; }
 .recipe-col{ flex:0 0 auto; min-width:0; padding-right:8px; box-sizing:border-box; }
-.list-ul{ list-style:none; margin:0; padding:0; }
+.list-ul{ list-style:none; margin:0; padding:0; width:100%; box-sizing:border-box; }
 .list-li{
+  width:100%;
+  box-sizing:border-box;
   padding:2px 4px;
   cursor:pointer;
   line-height:18px;
@@ -527,7 +533,7 @@ function setScrollRef(el: Element | null) {
 .list-li.active{ background:#0a246a; color:#fff; }
 .name-only,
 .cell-name,
-.cell-time{ display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cell-time{ display:inline-block; box-sizing:border-box; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cell-name{ padding-right:8px; }
 .cell-time{ border-left:1px solid #c6c6c6; padding-left:8px; font-size:11px; font-weight:400; color:#555; }
 .picker-preview{
@@ -610,4 +616,5 @@ function setScrollRef(el: Element | null) {
 .cell-yellow{ background:rgb(255, 238, 0); }
 .cell-disabled{ background:rgb(236, 233, 216); }
 .cell-white{ background:#fff; }
+.cell-error{ background:rgb(255, 102, 102); }
 </style>
