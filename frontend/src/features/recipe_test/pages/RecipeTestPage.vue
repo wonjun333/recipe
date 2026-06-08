@@ -182,6 +182,7 @@
       @body-scroll="onRecipeBodyScroll"
       @start-resize="onRecipeListResize"
       @register-scroll-el="setRecipeScrollEl"
+      @edit-recipe="openPolConEdit"
     />
 
     <Win97ContextMenu
@@ -1465,12 +1466,15 @@ const jobPanelStyle = computed(() => {
   return { height: listPaneHeight, width: w, flexBasis: w }
 })
 
-const contentPaneStyle = computed(() => ({
-  flexGrow: '0',
-  width: 'max-content',
-  flexBasis: 'max-content',
-  flexShrink: '0',
-}))
+const contentPaneStyle = computed(() => {
+  const expandedForJobList = activePane.value === 'jobList' && showJobContent.value
+  return {
+    flexGrow: '0',
+    width: expandedForJobList ? 'clamp(720px, 54vw, 960px)' : 'max-content',
+    flexBasis: expandedForJobList ? 'clamp(720px, 54vw, 960px)' : 'max-content',
+    flexShrink: '0',
+  }
+})
 
 /** cas tab */
 const casTab = ref<'standard'|'pre'|'gating'|'post'>('standard')
@@ -2628,6 +2632,7 @@ function onJobClick(jobId:string, e:MouseEvent){
     selectedJobs.add(jobId)
     setJobQueryProgram(displayJobName(list.find(j=>j.id===jobId)?.jobName ?? ''))
     applyJobToSelectedSlots(jobId)
+    void fetchJobContent(jobId)
     scrollIntoView(jobRefs, jobId)
     jobListAttention.value = false
     return
@@ -3145,6 +3150,14 @@ function openListMenu(kind:'cas'|'job'|'recipe', e:MouseEvent){
     if(multi){
       items.push({ label:'Delete', action:()=>{ ctxMenu.open=false; recipeListDelete() } })
     } else {
+      const singleRecipe = selectedRecipeSingle.value
+      const isPolCon = singleRecipe && (
+        ['polishRecipe', 'conditionRecipe', 'exSituCondition', 'specialExSitu'].includes(singleRecipe.sourceKind ?? '') ||
+        ['pol', 'con'].includes(String((singleRecipe as any).meta?.sourceType ?? ''))
+      )
+      if (isPolCon && singleRecipe) {
+        items.push({ label:'Edit', action:()=>{ ctxMenu.open=false; openPolConEdit(singleRecipe) } })
+      }
       items.push({ label:'Rename', action:()=>{ ctxMenu.open=false; recipeListEditRename() } })
       items.push({ label:'Save As', action:()=>{ ctxMenu.open=false; recipeListSaveAs() } })
       items.push({ label:'Delete', action:()=>{ ctxMenu.open=false; recipeListDelete() } })

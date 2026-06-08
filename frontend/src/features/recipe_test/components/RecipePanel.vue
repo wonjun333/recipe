@@ -138,6 +138,19 @@
                 <path d="M8 15h5"></path>
               </svg>
             </button>
+            <button
+              v-if="isPolConPreview && selectedRecipeSingle"
+              class="win-btn iconbtn edit-polcon-btn"
+              type="button"
+              title="Edit .pol/.con"
+              aria-label="edit recipe"
+              @click.stop="emit('edit-recipe', selectedRecipeSingle)"
+            >
+              <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20h4l10.5-10.5a2.83 2.83 0 0 0-4-4L4 16v4Z"></path>
+                <path d="m13.5 6.5 4 4"></path>
+              </svg>
+            </button>
           </div>
           <table
             v-if="displayPreviewColumns.length"
@@ -244,6 +257,7 @@ const emit = defineEmits<{
   (e: 'body-scroll'): void
   (e: 'start-resize', payload: { colKey: 'name' | 'modifiedAt'; event: MouseEvent }): void
   (e: 'register-scroll-el', el: HTMLDivElement | null): void
+  (e: 'edit-recipe', recipe: RecipeDetail): void
 }>()
 
 const computedTitlePrefix = computed(() => (props.editMode ? 'Select' : ''))
@@ -749,6 +763,12 @@ onBeforeUnmount(() => {
   flex:1 1 auto;
 }
 .copy-preview-btn{
+  margin-right:6px;
+  background:#eef2f7;
+  border:1px solid #9aa4b2;
+  border-radius:4px;
+}
+.edit-polcon-btn{
   margin-right:6px;
   background:#eef2f7;
   border:1px solid #9aa4b2;
