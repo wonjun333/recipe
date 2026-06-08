@@ -79,6 +79,8 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   eqpId: { type: String, required: true },
   recipe: { type: Object as PropType<RecipeDetail | null>, default: null },
+  actorName: { type: String, default: '' },
+  actorTeam: { type: String, default: '' },
 })
 
 const emit = defineEmits<{
@@ -193,7 +195,7 @@ async function handleDownload() {
   try {
     const updated = buildUpdatedParamValues()
     const fileName = outputFileName.value.trim() || recipeName.value
-    const blob = await recipeTestApi.encodePolCon(props.eqpId, props.recipe.id, updated, fileName)
+    const blob = await recipeTestApi.encodePolCon(props.eqpId, props.recipe.id, updated, fileName, props.actorName, props.actorTeam)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

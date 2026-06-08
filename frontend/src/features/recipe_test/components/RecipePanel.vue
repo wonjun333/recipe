@@ -837,15 +837,8 @@ onBeforeUnmount(() => {
   font-weight:900;
   padding:0 10px;
 }
-.inline-edit-active{
-  outline:2px solid #b45309;
-}
 .inline-editable-cell{
   cursor:pointer;
-  outline:1px dashed #b45309;
-}
-.inline-editable-cell:hover{
-  background:#fff3cd !important;
 }
 .copy-preview-icon{
   width:16px;

@@ -21,6 +21,11 @@ export type PolConEditableModel = {
   paramValues: Record<string, Array<number | number[]>>
   dynamicZones: number[]
   platenIndex?: number | null
+  endByParamKeys?: {
+    option?: string
+    maxTime?: string
+    minTime?: string
+  }
 }
 
 export type RecipeMeta = {
@@ -124,7 +129,7 @@ export type RenameFileResponse = { status: string; name: string; path: string; o
 export type DeleteFileItem = { kind: 'cas' | 'job' | 'recipe'; name: string; sourceKind?: RecipeSourceKind }
 export type DeleteFilesResponse = { status: string; deleted: Array<{ status: string; kind: 'cas' | 'job' | 'recipe'; name: string; path: string }>; failed: Array<{ kind: 'cas' | 'job' | 'recipe'; name: string; reason: string }> }
 export type TransferCartItem = { kind: 'cas' | 'job' | 'recipe'; name: string; sourceEqpId: string; sourceKind?: RecipeSourceKind }
-export type TransferRequest = { items: TransferCartItem[]; targetEqpIds: string[]; actorName?: string; actorTeam?: string }
+export type TransferRequest = { items: TransferCartItem[]; targetEqpIds: string[]; actorName?: string; actorTeam?: string; targetEqpTeams?: Record<string, string> }
 export type TransferResultItem = { targetEqpId: string; name: string; kind: 'cas' | 'job' | 'recipe'; path: string; status: string }
 export type TransferResponse = { status: string; moved: TransferResultItem[]; failed?: Array<{ targetEqpId: string; name: string; kind: 'cas' | 'job' | 'recipe'; sourceEqpId: string; reason: string }> }
 export type HistoryEntry = { actorName: string; actorTeam: string; fromEqpId: string; action: string; toEqpId: string; createdAt: string; itemKind?: string; sourceName?: string; targetName?: string; recipeName?: string; requestId?: string; status?: string; reason?: string; detail?: string; knoxid?: string; fromEqpTeam?: string; toEqpTeam?: string }
@@ -194,7 +199,7 @@ export const recipeTestApi = {
   getHistoryComments() { return http<HistoryCommentsResponse>('/api/recipe-test/history-comments') },
   putHistoryComment(groupKey: string, comment: string, commentAuthor = '') { return http<{ status: string }>('/api/recipe-test/history-comment', { method: 'PUT', body: JSON.stringify({ groupKey, comment, commentAuthor }) }) },
   cloneRecipe(eqpId: string, sourceRecipeName: string, targetRecipeName: string, sourceKind: RecipeSourceKind, actorName = '', actorTeam = '') { return http<CloneRecipeResponse>('/api/recipe-test/recipe/clone', { method: 'POST', body: JSON.stringify({ eqpId, sourceRecipeName, targetRecipeName, sourceKind, actorName, actorTeam }) }) },
-  async encodePolCon(eqpId: string, recipeId: string, updatedParamValues: Record<string, number[]>, fileName = ''): Promise<Blob> {
+  async encodePolCon(eqpId: string, recipeId: string, updatedParamValues: Record<string, number[]>, fileName = '', actorName = '', actorTeam = ''): Promise<Blob> {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 60000)
     try {
@@ -202,7 +207,7 @@ export const recipeTestApi = {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eqpId, recipeId, updatedParamValues, fileName }),
+        body: JSON.stringify({ eqpId, recipeId, updatedParamValues, fileName, actorName, actorTeam }),
         signal: controller.signal,
       })
       if (!res.ok) {

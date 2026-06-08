@@ -236,15 +236,17 @@
       :open="polConEdit.open"
       :eqp-id="eqpId"
       :recipe="polConEdit.recipe"
+      :actor-name="actorName"
+      :actor-team="team"
       @close="closePolConEdit"
     />
 
     <EndByEditDialog
       :open="inlineEdit.endByDialog.open"
       :step-number="inlineEdit.endByDialog.stepIndex + 1"
-      :current-option="_inlineParamVal('EPD_END_STEPOPTION', inlineEdit.endByDialog.stepIndex)"
-      :current-max-time="_inlineParamVal('END_BY_MAX/TIME', inlineEdit.endByDialog.stepIndex)"
-      :current-min-time="_inlineParamVal('END_BY_MIN', inlineEdit.endByDialog.stepIndex)"
+      :current-option="inlineEndByValue('option', inlineEdit.endByDialog.stepIndex)"
+      :current-max-time="inlineEndByValue('maxTime', inlineEdit.endByDialog.stepIndex)"
+      :current-min-time="inlineEndByValue('minTime', inlineEdit.endByDialog.stepIndex)"
       @confirm="onEndByConfirm"
       @cancel="inlineEdit.endByDialog.open = false"
     />
@@ -2198,6 +2200,22 @@ function _ensureParamEdit(paramName: string) {
   )
 }
 
+function inlineEndByParamKeys() {
+  const model = (inlineEdit.recipe as any)?.meta?.editableModel
+  const keys = model?.endByParamKeys ?? {}
+  const sourceType = String((inlineEdit.recipe as any)?.meta?.sourceType ?? '')
+  return {
+    option: String(keys.option || (sourceType === 'con' ? 'END_STEP_CITRIA_OPTION' : 'EPD_END_STEPOPTION')),
+    maxTime: String(keys.maxTime || (sourceType === 'con' ? 'END_STEP_CITRIA_MAX_TIME' : 'END_BY_MAX/TIME')),
+    minTime: String(keys.minTime || (sourceType === 'con' ? '' : 'END_BY_MIN')),
+  }
+}
+
+function inlineEndByValue(kind: 'option' | 'maxTime' | 'minTime', stepIndex: number): number {
+  const key = inlineEndByParamKeys()[kind]
+  return key ? _inlineParamVal(key, stepIndex) : 0
+}
+
 function onInlineCellClick(payload: { rowIndex: number; column: string }) {
   if (payload.column === 'End By') {
     inlineEdit.endByDialog = { open: true, stepIndex: payload.rowIndex }
@@ -2206,12 +2224,17 @@ function onInlineCellClick(payload: { rowIndex: number; column: string }) {
 
 function onEndByConfirm(payload: { option: number; maxTime: number; minTime: number }) {
   const si = inlineEdit.endByDialog.stepIndex
-  _ensureParamEdit('EPD_END_STEPOPTION')
-  _ensureParamEdit('END_BY_MAX/TIME')
-  _ensureParamEdit('END_BY_MIN')
-  inlineEdit.edits['EPD_END_STEPOPTION'][si] = payload.option
-  inlineEdit.edits['END_BY_MAX/TIME'][si] = payload.maxTime
-  inlineEdit.edits['END_BY_MIN'][si] = payload.minTime
+  const keys = inlineEndByParamKeys()
+  const updates: Array<[string, number]> = [
+    [keys.option, payload.option],
+    [keys.maxTime, payload.maxTime],
+    [keys.minTime, payload.minTime],
+  ]
+  for (const [key, value] of updates) {
+    if (!key) continue
+    _ensureParamEdit(key)
+    inlineEdit.edits[key][si] = value
+  }
   inlineEdit.endByDialog.open = false
 }
 
@@ -2224,6 +2247,8 @@ async function handleInlineDownload() {
       inlineEdit.recipe.id,
       inlineEdit.edits,
       inlineEdit.recipe.name,
+      getActorName(),
+      getActorTeam(),
     )
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -3090,6 +3115,9 @@ async function moveCartItems() {
       targetEqpIds: selectedCartTargetEqpIds.value,
       actorName: getActorName(),
       actorTeam: getActorTeam(),
+      targetEqpTeams: Object.fromEntries(
+        selectedCartTargetEqpIds.value.map(id => [id, eqpMasterItems.value.find(x => x.eqpId === id)?.team ?? ''])
+      ),
     })
 
     const movedCount = Array.isArray(res.moved) ? res.moved.length : 0

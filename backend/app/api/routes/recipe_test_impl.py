@@ -322,6 +322,7 @@ class TransferRequest(BaseModel):
     targetEqpIds: list[str] = Field(default_factory=list)
     actorName: str = ''
     actorTeam: str = ''
+    targetEqpTeams: dict[str, str] = Field(default_factory=dict)
 
 
 class RenameFileRequest(BaseModel):
@@ -2277,7 +2278,8 @@ def transfer_files(req: TransferRequest, request: Request):
                 try:
                     moved_item = copy_file_between_eqp(item, target_eqp_id)
                     moved.append(moved_item)
-                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, created_at=request_time, recipe_name=item.name)
+                    to_team = req.targetEqpTeams.get(target_eqp_id, '')
+                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=to_team, created_at=request_time, recipe_name=item.name)
                 except Exception as e:
                     reason = format_ftp_error(e)
                     failed.append({
@@ -2287,7 +2289,8 @@ def transfer_files(req: TransferRequest, request: Request):
                         'sourceEqpId': item.sourceEqpId,
                         'reason': reason,
                     })
-                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, status='failed', reason=reason, created_at=request_time, recipe_name=item.name)
+                    to_team = req.targetEqpTeams.get(target_eqp_id, '')
+                    record_history('Transfer', actor_name, item.sourceEqpId, target_eqp_id, item.kind, item.name, item.name, knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=to_team, status='failed', reason=reason, created_at=request_time, recipe_name=item.name)
         status = 'ok' if moved and not failed else ('partial' if moved else 'failed')
         return {'status': status, 'moved': moved, 'failed': failed}
     except Exception as e:
@@ -2314,10 +2317,12 @@ class PolConEncodeRequest(BaseModel):
     recipeId: str
     updatedParamValues: dict[str, list[Any]]
     fileName: str = ''
+    actorName: str = ''
+    actorTeam: str = ''
 
 
 @router.post('/pol-con-encode')
-def encode_pol_con(req: PolConEncodeRequest):
+def encode_pol_con(req: PolConEncodeRequest, request: Request):
     from app.services.pol_con_encoder import encode_pol_con_bytes
 
     source_parsed = parse_source_recipe_id(req.recipeId)
@@ -2357,7 +2362,14 @@ def encode_pol_con(req: PolConEncodeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'인코딩 실패: {e}')
 
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
     out_name = req.fileName.strip() or recipe_name
+    record_history('Edit', actor_name, req.eqpId, req.eqpId, source_kind, recipe_name, out_name,
+                   knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam,
+                   recipe_name=out_name, detail=f'{recipe_name} → {out_name}')
+
     return StreamingResponse(
         BytesIO(encoded),
         media_type='application/octet-stream',

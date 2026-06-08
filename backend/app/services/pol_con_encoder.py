@@ -24,6 +24,7 @@ def encode_pol_con_bytes(
     are overwritten.
     """
     param_map = CON_MAP if is_con else POL_MAP
+    updates = _normalize_updates(updated_param_values)
     hex_string = get_hex_string_from_bytes(original_bytes)
     total_count = len(hex_string)
 
@@ -66,10 +67,7 @@ def encode_pol_con_bytes(
             continue
 
         mapped = param_map.get(param_id, param_id)
-        new_values = (
-            updated_param_values.get(mapped)
-            or updated_param_values.get(f'{mapped}__{param_id}')
-        )
+        new_values = _find_update_values(updates, mapped, param_id)
 
         if new_values is not None:
             _patch_values(hex_chars, values_start, step_count, data_length, new_values)
@@ -77,6 +75,38 @@ def encode_pol_con_bytes(
         point += block_hex_len
 
     return bytes.fromhex(''.join(hex_chars))
+
+
+def _normalize_updates(updated_param_values: dict[str, list[Any]]) -> dict[str, list[Any]]:
+    """Normalize client keys while preserving decoder duplicate-key suffixes.
+
+    Decoder exposes duplicate mapped params as NAME__RAWID.  Those exact keys
+    must win over the common NAME key for the matching raw param block.
+    """
+    out: dict[str, list[Any]] = {}
+    for key, value in (updated_param_values or {}).items():
+        clean_key = str(key or '').strip()
+        if not clean_key:
+            continue
+        if not isinstance(value, list):
+            value = [value]
+        out[clean_key] = value
+        out[clean_key.upper()] = value
+    return out
+
+
+def _find_update_values(updates: dict[str, list[Any]], mapped: str, param_id: str) -> list[Any] | None:
+    raw_id = str(param_id or '').upper()
+    mapped_key = str(mapped or '').strip()
+    exact_keys = [
+        f'{mapped_key}__{raw_id}',
+        f'{mapped_key.upper()}__{raw_id}',
+        raw_id,
+    ]
+    for key in exact_keys:
+        if key in updates:
+            return updates[key]
+    return updates.get(mapped_key) or updates.get(mapped_key.upper())
 
 
 def _patch_values(
