@@ -138,20 +138,28 @@
                 <path d="M8 15h5"></path>
               </svg>
             </button>
-            <button
-              v-if="isPolConPreview && selectedRecipeSingle"
-              class="win-btn iconbtn edit-polcon-btn"
-              type="button"
-              title="Edit .pol/.con"
-              aria-label="edit recipe"
-              @click.stop="emit('edit-recipe', selectedRecipeSingle)"
-            >
-              <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 20h4l10.5-10.5a2.83 2.83 0 0 0-4-4L4 16v4Z"></path>
-                <path d="m13.5 6.5 4 4"></path>
-              </svg>
-            </button>
+            <template v-if="isPolConPreview && selectedRecipeSingle">
+              <button
+                v-if="!inlineEditMode"
+                class="win-btn iconbtn edit-polcon-btn"
+                type="button"
+                title="Edit .pol/.con"
+                aria-label="edit recipe"
+                @click.stop="emit('toggle-inline-edit')"
+              >
+                <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 20h4l10.5-10.5a2.83 2.83 0 0 0-4-4L4 16v4Z"></path>
+                  <path d="m13.5 6.5 4 4"></path>
+                </svg>
+              </button>
+              <template v-else>
+                <span class="edit-mode-badge">EDIT MODE</span>
+                <button class="win-btn edit-dl-btn" type="button" @click.stop="emit('inline-download')">Download</button>
+                <button class="win-btn" type="button" @click.stop="emit('toggle-inline-edit')">Cancel</button>
+              </template>
+            </template>
           </div>
+          <ConConditioningInfo v-if="isConPreview" :recipe="selectedRecipeSingle" />
           <table
             v-if="displayPreviewColumns.length"
             class="legacy-table preview-table-large"
@@ -159,6 +167,7 @@
               'jobish-table': richRecipeKinds.includes(selectedRecipeSingle?.sourceKind || ''),
               'pol-preview': isPolPreview,
               'polcon-preview': isPolConPreview,
+              'inline-edit-active': inlineEditMode,
             }"
           >
             <thead>
@@ -178,10 +187,11 @@
                 <td
                   v-for="c in displayPreviewColumns"
                   :key="c"
-                  :class="recipeCellClass(c, row[c] ?? '', row)"
+                  :class="[recipeCellClass(c, row[c] ?? '', row), conExtraClass(c, i), inlineEditMode && EDITABLE_COLUMNS.has(c) ? 'inline-editable-cell' : '']"
                   :style="previewColumnStyle(c)"
+                  @click.stop="inlineEditMode && EDITABLE_COLUMNS.has(c) && emit('inline-cell-click', { rowIndex: i, column: c })"
                 >
-                  <span class="recipe-cell-text" v-html="recipeCellHtml(c, row[c] ?? '', row)"></span>
+                  <span class="recipe-cell-text" v-html="conCellHtml(c, row[c] ?? '', row, i)"></span>
                 </td>
               </tr>
             </tbody>
@@ -210,6 +220,7 @@
 import { computed, onBeforeUnmount, ref, type PropType } from 'vue'
 import type { RecipeDetail } from '../api/recipeTestApi'
 import { visiblePreviewColumns } from '../utils/previewColumns'
+import ConConditioningInfo from './ConConditioningInfo.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -240,6 +251,7 @@ const props = defineProps({
     type: Object as PropType<{ name: number; modifiedAt: number }>,
     default: () => ({ name: 240, modifiedAt: 120 }),
   },
+  inlineEditMode: { type: Boolean, default: false },
 })
 
 const emit = defineEmits<{
@@ -258,7 +270,12 @@ const emit = defineEmits<{
   (e: 'start-resize', payload: { colKey: 'name' | 'modifiedAt'; event: MouseEvent }): void
   (e: 'register-scroll-el', el: HTMLDivElement | null): void
   (e: 'edit-recipe', recipe: RecipeDetail): void
+  (e: 'toggle-inline-edit'): void
+  (e: 'inline-cell-click', payload: { rowIndex: number; column: string }): void
+  (e: 'inline-download'): void
 }>()
+
+const EDITABLE_COLUMNS = new Set(['End By'])
 
 const computedTitlePrefix = computed(() => (props.editMode ? 'Select' : ''))
 const copyToastVisible = ref(false)
@@ -266,7 +283,33 @@ let copyToastTimer: ReturnType<typeof setTimeout> | null = null
 
 const richRecipeKinds = ['megasonics', 'brush1', 'brush2', 'vaporDryer'] as const
 const isPolPreview = computed(() => String((props.selectedRecipeSingle as any)?.meta?.sourceType ?? '') === 'pol')
+const isConPreview = computed(() => String((props.selectedRecipeSingle as any)?.meta?.sourceType ?? '') === 'con')
 const isPolConPreview = computed(() => ['pol', 'con'].includes(String((props.selectedRecipeSingle as any)?.meta?.sourceType ?? '')))
+
+const CON_INSITU_COLS = new Set(['Platen RPM', 'L1', 'L2', 'L3', 'L4'])
+const CON_YELLOW_COLS = new Set(['Pad Cond Sweep', 'Pad Cond Downforce'])
+
+function isConInSituAtRow(rowIndex: number): boolean {
+  if (!isConPreview.value) return false
+  const pv = (props.selectedRecipeSingle as any)?.meta?.editableModel?.paramValues
+  if (!pv) return false
+  const arr = pv['IN/EX SITU']
+  return Array.isArray(arr) ? Number(arr[rowIndex] ?? arr[0] ?? 1) === 0 : false
+}
+
+function conExtraClass(column: string, rowIndex: number): string {
+  if (!isConPreview.value) return ''
+  if (CON_INSITU_COLS.has(column) && isConInSituAtRow(rowIndex)) return 'cell-con-insitu'
+  if (CON_YELLOW_COLS.has(column)) return 'cell-yellow'
+  return ''
+}
+
+function conCellHtml(column: string, value: unknown, row: Record<string, unknown>, rowIndex: number): string {
+  if (isConPreview.value && CON_INSITU_COLS.has(column) && isConInSituAtRow(rowIndex)) {
+    return `<span class="recipe-line">In</span><br><span class="recipe-line">Situ</span>`
+  }
+  return recipeCellHtml(column, value, row)
+}
 
 function stripKnownRecipeExt(name: unknown) {
   return String(name ?? '').trim().replace(/\.(br|meg|dryr|drpr|pol|con|alg|seg|scx|cln)$/i, '')
@@ -774,6 +817,36 @@ onBeforeUnmount(() => {
   border:1px solid #9aa4b2;
   border-radius:4px;
 }
+.edit-mode-badge{
+  background:#b45309;
+  color:#fff;
+  font-size:10px;
+  font-weight:900;
+  padding:2px 6px;
+  border-radius:2px;
+  letter-spacing:0.5px;
+  white-space:nowrap;
+}
+.edit-dl-btn{
+  background:#1a5276;
+  color:#fff;
+  border-top:2px solid #2e86c1;
+  border-left:2px solid #2e86c1;
+  border-right:2px solid #0e2f44;
+  border-bottom:2px solid #0e2f44;
+  font-weight:900;
+  padding:0 10px;
+}
+.inline-edit-active{
+  outline:2px solid #b45309;
+}
+.inline-editable-cell{
+  cursor:pointer;
+  outline:1px dashed #b45309;
+}
+.inline-editable-cell:hover{
+  background:#fff3cd !important;
+}
 .copy-preview-icon{
   width:16px;
   height:16px;
@@ -954,6 +1027,11 @@ onBeforeUnmount(() => {
   border-color:#666;
 }
 .cell-yellow{ background:rgb(255, 238, 0); }
+.cell-con-insitu{
+  background:rgb(236, 233, 216);
+  color:#555;
+  text-align:center;
+}
 .cell-disabled{ background:rgb(236, 233, 216); }
 .cell-white{ background:#fff; }
 .cell-error{ background:rgb(255, 102, 102); }

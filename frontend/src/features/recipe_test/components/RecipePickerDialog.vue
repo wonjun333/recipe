@@ -92,6 +92,7 @@
             <div class="picker-preview-title">Preview: {{ displayListName(previewRecipe?.name ?? '', previewRecipe?.sourceKind) }}</div>
 
             <div v-if="previewRecipe && displayPreviewColumns.length" class="picker-preview-tablewrap">
+              <ConConditioningInfo v-if="isConPreview" :recipe="previewRecipe" />
               <table
                 class="legacy-table preview-table-large"
                 :class="{
@@ -117,10 +118,10 @@
                     <td
                       v-for="c in displayPreviewColumns"
                       :key="c"
-                      :class="recipeCellClass(c, row[c] ?? '', row)"
+                      :class="[recipeCellClass(c, row[c] ?? '', row), conExtraClass(c, i)]"
                       :style="previewColumnStyle(c)"
                     >
-                      <span class="recipe-cell-text" v-html="recipeCellHtml(c, row[c] ?? '', row)"></span>
+                      <span class="recipe-cell-text" v-html="conCellHtml(c, row[c] ?? '', row, i)"></span>
                     </td>
                   </tr>
                 </tbody>
@@ -149,6 +150,7 @@
 import { computed, type PropType } from 'vue'
 import type { RecipeDetail, RecipeSourceKind } from '../api/recipeTestApi'
 import { visiblePreviewColumns } from '../utils/previewColumns'
+import ConConditioningInfo from './ConConditioningInfo.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -201,6 +203,32 @@ const firstPickerKind = computed(() => {
 })
 const isPolConPicker = computed(() => ['polishRecipe', 'conditionRecipe', 'exSituCondition', 'specialExSitu'].includes(String(firstPickerKind.value)))
 const isPolPreview = computed(() => String((props.previewRecipe as any)?.meta?.sourceType ?? '') === 'pol')
+const isConPreview = computed(() => String((props.previewRecipe as any)?.meta?.sourceType ?? '') === 'con')
+
+const CON_INSITU_COLS = new Set(['Platen RPM', 'L1', 'L2', 'L3', 'L4'])
+const CON_YELLOW_COLS = new Set(['Pad Cond Sweep', 'Pad Cond Downforce'])
+
+function isConInSituAtRow(rowIndex: number): boolean {
+  if (!isConPreview.value) return false
+  const pv = (props.previewRecipe as any)?.meta?.editableModel?.paramValues
+  if (!pv) return false
+  const arr = pv['IN/EX SITU']
+  return Array.isArray(arr) ? Number(arr[rowIndex] ?? arr[0] ?? 1) === 0 : false
+}
+
+function conExtraClass(column: string, rowIndex: number): string {
+  if (!isConPreview.value) return ''
+  if (CON_INSITU_COLS.has(column) && isConInSituAtRow(rowIndex)) return 'cell-con-insitu'
+  if (CON_YELLOW_COLS.has(column)) return 'cell-yellow'
+  return ''
+}
+
+function conCellHtml(column: string, value: unknown, row: Record<string, unknown>, rowIndex: number): string {
+  if (isConPreview.value && CON_INSITU_COLS.has(column) && isConInSituAtRow(rowIndex)) {
+    return `<span class="recipe-line">In</span><br><span class="recipe-line">Situ</span>`
+  }
+  return recipeCellHtml(column, value, row)
+}
 const listItemInlinePadding = 8
 const columnBlockWidth = computed(() => ((props.listMode === 'detail' ? props.colWidths.name + props.colWidths.modifiedAt : props.colWidths.name) + 8))
 const listNameCellWidth = computed(() => Math.max(0, props.colWidths.name - listItemInlinePadding))
@@ -640,4 +668,9 @@ function setScrollRef(el: Element | null) {
 .cell-disabled{ background:rgb(236, 233, 216); }
 .cell-white{ background:#fff; }
 .cell-error{ background:rgb(255, 102, 102); }
+.cell-con-insitu{
+  background:rgb(236, 233, 216);
+  color:#555;
+  text-align:center;
+}
 </style>

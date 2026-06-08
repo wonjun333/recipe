@@ -183,6 +183,10 @@
       @start-resize="onRecipeListResize"
       @register-scroll-el="setRecipeScrollEl"
       @edit-recipe="openPolConEdit"
+      :inline-edit-mode="inlineEdit.mode"
+      @toggle-inline-edit="toggleInlineEdit"
+      @inline-cell-click="onInlineCellClick"
+      @inline-download="handleInlineDownload"
     />
 
     <Win97ContextMenu
@@ -235,6 +239,16 @@
       @close="closePolConEdit"
     />
 
+    <EndByEditDialog
+      :open="inlineEdit.endByDialog.open"
+      :step-number="inlineEdit.endByDialog.stepIndex + 1"
+      :current-option="_inlineParamVal('EPD_END_STEPOPTION', inlineEdit.endByDialog.stepIndex)"
+      :current-max-time="_inlineParamVal('END_BY_MAX/TIME', inlineEdit.endByDialog.stepIndex)"
+      :current-min-time="_inlineParamVal('END_BY_MIN', inlineEdit.endByDialog.stepIndex)"
+      @confirm="onEndByConfirm"
+      @cancel="inlineEdit.endByDialog.open = false"
+    />
+
     </div>
 
   </section>
@@ -265,6 +279,7 @@ import Win97ContextMenu from '../components/Win97ContextMenu.vue'
 import Win97ConfirmDialog from '../components/Win97ConfirmDialog.vue'
 import TransferCartPanel from '../components/TransferCartPanel.vue'
 import PolConEditDialog from '../components/PolConEditDialog.vue'
+import EndByEditDialog from '../components/EndByEditDialog.vue'
 
 /** Per_Col */
 const CAS_PER_COL = 25
@@ -2133,6 +2148,94 @@ function openPolConEdit(recipe: import('../api/recipeTestApi').RecipeDetail) {
 function closePolConEdit() {
   polConEdit.open = false
   polConEdit.recipe = null
+}
+
+/** inline edit */
+const inlineEdit = reactive<{
+  mode: boolean
+  recipe: import('../api/recipeTestApi').RecipeDetail | null
+  edits: Record<string, number[]>
+  endByDialog: { open: boolean; stepIndex: number }
+  downloadError: string
+}>({
+  mode: false,
+  recipe: null,
+  edits: {},
+  endByDialog: { open: false, stepIndex: -1 },
+  downloadError: '',
+})
+
+function toggleInlineEdit() {
+  if (inlineEdit.mode) {
+    inlineEdit.mode = false
+    inlineEdit.recipe = null
+    inlineEdit.edits = {}
+    inlineEdit.endByDialog = { open: false, stepIndex: -1 }
+  } else {
+    const r = selectedRecipeSingle.value
+    if (!r) return
+    inlineEdit.mode = true
+    inlineEdit.recipe = r
+    inlineEdit.edits = {}
+  }
+}
+
+function _inlineParamVal(paramName: string, stepIndex: number): number {
+  const edited = inlineEdit.edits[paramName]
+  if (edited && stepIndex < edited.length) return edited[stepIndex]
+  const pv = (inlineEdit.recipe as any)?.meta?.editableModel?.paramValues
+  const arr = pv?.[paramName]
+  return Array.isArray(arr) ? (Number(arr[stepIndex]) || 0) : 0
+}
+
+function _ensureParamEdit(paramName: string) {
+  if (inlineEdit.edits[paramName]) return
+  const stepCount: number = (inlineEdit.recipe as any)?.meta?.stepCount ?? 1
+  const pv = (inlineEdit.recipe as any)?.meta?.editableModel?.paramValues
+  const arr = pv?.[paramName]
+  inlineEdit.edits[paramName] = Array.from({ length: stepCount }, (_, i) =>
+    Array.isArray(arr) ? (Number(arr[i]) || 0) : 0
+  )
+}
+
+function onInlineCellClick(payload: { rowIndex: number; column: string }) {
+  if (payload.column === 'End By') {
+    inlineEdit.endByDialog = { open: true, stepIndex: payload.rowIndex }
+  }
+}
+
+function onEndByConfirm(payload: { option: number; maxTime: number; minTime: number }) {
+  const si = inlineEdit.endByDialog.stepIndex
+  _ensureParamEdit('EPD_END_STEPOPTION')
+  _ensureParamEdit('END_BY_MAX/TIME')
+  _ensureParamEdit('END_BY_MIN')
+  inlineEdit.edits['EPD_END_STEPOPTION'][si] = payload.option
+  inlineEdit.edits['END_BY_MAX/TIME'][si] = payload.maxTime
+  inlineEdit.edits['END_BY_MIN'][si] = payload.minTime
+  inlineEdit.endByDialog.open = false
+}
+
+async function handleInlineDownload() {
+  if (!inlineEdit.recipe) return
+  inlineEdit.downloadError = ''
+  try {
+    const blob = await recipeTestApi.encodePolCon(
+      eqpId.value,
+      inlineEdit.recipe.id,
+      inlineEdit.edits,
+      inlineEdit.recipe.name,
+    )
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = inlineEdit.recipe.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    inlineEdit.downloadError = e?.message ?? 'Download failed'
+  }
 }
 
 /** recipe picker */
