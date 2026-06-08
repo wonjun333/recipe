@@ -224,6 +224,14 @@
       @body-scroll="onRecipePickerBodyScroll"
       @start-resize="onRecipePickerListResize"
       @register-scroll-el="setRecipePickerScrollEl"
+      @edit-recipe="openPolConEdit"
+    />
+
+    <PolConEditDialog
+      :open="polConEdit.open"
+      :eqp-id="eqpId"
+      :recipe="polConEdit.recipe"
+      @close="closePolConEdit"
     />
 
     </div>
@@ -255,6 +263,7 @@ import RecipePickerDialog from '../components/RecipePickerDialog.vue'
 import Win97ContextMenu from '../components/Win97ContextMenu.vue'
 import Win97ConfirmDialog from '../components/Win97ConfirmDialog.vue'
 import TransferCartPanel from '../components/TransferCartPanel.vue'
+import PolConEditDialog from '../components/PolConEditDialog.vue'
 
 /** Per_Col */
 const CAS_PER_COL = 25
@@ -2107,6 +2116,19 @@ async function openRecipePanel(platen:1|2|3){
   await ensureRecipeSourceLoaded('polishRecipe')
   const found = ensureRecipeByName(wanted, 'polishRecipe')
   await openRecipePanelWithRecipe(found, platen, 'Polish Recipe', `Platen ${platen}`)
+}
+
+/** pol/con edit dialog */
+const polConEdit = reactive<{ open: boolean; recipe: import('../api/recipeTestApi').RecipeDetail | null }>({ open: false, recipe: null })
+
+function openPolConEdit(recipe: import('../api/recipeTestApi').RecipeDetail) {
+  polConEdit.recipe = recipe
+  polConEdit.open = true
+}
+
+function closePolConEdit() {
+  polConEdit.open = false
+  polConEdit.recipe = null
 }
 
 /** recipe picker */

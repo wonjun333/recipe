@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
@@ -2306,3 +2307,59 @@ def invalidate_runtime_cache(req: InvalidateCacheRequest):
         for k in keys_to_del:
             cache.pop(k, None)
     return {'status': 'ok', 'eqpId': eqp_id}
+
+
+class PolConEncodeRequest(BaseModel):
+    eqpId: str
+    recipeId: str
+    updatedParamValues: dict[str, list[Any]]
+    fileName: str = ''
+
+
+@router.post('/pol-con-encode')
+def encode_pol_con(req: PolConEncodeRequest):
+    from app.services.pol_con_encoder import encode_pol_con_bytes
+
+    source_parsed = parse_source_recipe_id(req.recipeId)
+    if not source_parsed:
+        raise HTTPException(status_code=400, detail='pol/con source recipe만 인코딩 가능합니다.')
+
+    source_kind, recipe_name = source_parsed
+    lower = recipe_name.lower()
+    is_con = lower.endswith('.con')
+    if not (lower.endswith('.pol') or is_con):
+        raise HTTPException(status_code=400, detail='.pol 또는 .con 파일만 인코딩 가능합니다.')
+
+    if MOCK_MODE:
+        raise HTTPException(status_code=400, detail='Mock 모드에서는 바이너리 원본이 없어 인코딩을 지원하지 않습니다.')
+
+    config = RECIPE_SOURCE_CONFIG.get(source_kind)
+    if not config:
+        raise HTTPException(status_code=404, detail=f'recipe source config 없음: {source_kind}')
+
+    path = str(config['path'])
+    ftp_ip, ftp_id, ftp_pw = load_eqp_ip(req.eqpId)
+
+    original_bytes: bytes | None = None
+    try:
+        original_bytes = svc_ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
+    except Exception:
+        original_bytes = (
+            get_latest_version_bytes(req.eqpId, path, recipe_name)
+            or read_vm_recipe_bytes(req.eqpId, path, recipe_name)
+        )
+
+    if not original_bytes:
+        raise HTTPException(status_code=404, detail='원본 파일 bytes를 가져올 수 없습니다.')
+
+    try:
+        encoded = encode_pol_con_bytes(original_bytes, req.updatedParamValues, is_con)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'인코딩 실패: {e}')
+
+    out_name = req.fileName.strip() or recipe_name
+    return StreamingResponse(
+        BytesIO(encoded),
+        media_type='application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename="{out_name}"'},
+    )

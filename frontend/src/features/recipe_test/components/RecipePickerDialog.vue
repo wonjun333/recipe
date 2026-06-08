@@ -134,6 +134,11 @@
 
       <div class="w97-modal-actions">
         <button class="win-btn" @click="previewRecipe && emit('select', previewRecipe)" :disabled="!previewRecipe">Select</button>
+        <button
+          v-if="isPolConPicker && previewRecipe"
+          class="win-btn"
+          @click="emit('edit-recipe', previewRecipe)"
+        >Edit</button>
         <button class="win-btn" @click="emit('close')">Close</button>
       </div>
     </div>
@@ -185,6 +190,7 @@ const emit = defineEmits<{
   (e: 'body-scroll'): void
   (e: 'start-resize', payload: { colKey: 'name' | 'modifiedAt'; event: MouseEvent }): void
   (e: 'register-scroll-el', el: HTMLDivElement | null): void
+  (e: 'edit-recipe', recipe: RecipeDetail): void
 }>()
 
 const richRecipeKinds = ['megasonics', 'brush1', 'brush2', 'vaporDryer'] as const

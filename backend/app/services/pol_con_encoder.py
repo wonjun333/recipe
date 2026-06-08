@@ -1,52 +1,120 @@
 from __future__ import annotations
 
+import struct
 from typing import Any
 
-
-def update_param_values_from_grid(
-    original_param_values: dict[str, list[Any]],
-    edited_rows: list[dict[str, Any]],
-    dynamic_zones: list[int] | None = None,
-) -> dict[str, list[Any]]:
-    dynamic_zones = dynamic_zones or []
-    param_values = {key: list(value) for key, value in (original_param_values or {}).items()}
-
-    def ensure_len(key: str, idx: int) -> None:
-        values = param_values.setdefault(key, [])
-        while len(values) <= idx:
-            values.append(0)
-
-    for idx, row in enumerate(edited_rows):
-        ensure_len('MAIN_STEP', idx)
-        ensure_len('RTPC_STEP', idx)
-        ensure_len('PLATEN_RPM', idx)
-        ensure_len('HEAD_RPM', idx)
-        ensure_len('END_BY_MAX/TIME', idx)
-        ensure_len('HPR_STEP', idx)
-        ensure_len('HEAD_RINSE', idx)
-        ensure_len('L1_FLOW_RATE', idx)
-        ensure_len('L2_FLOW_RATE', idx)
-        ensure_len('L3_FLOW_RATE', idx)
-        ensure_len('L4_FLOW_RATE', idx)
-        ensure_len('RR_STATE', idx)
-        ensure_len('Z1_STATE', idx)
-        ensure_len('Z2_STATE', idx)
-        ensure_len('Z3_STATE', idx)
-        ensure_len('Z4_STATE', idx)
-        ensure_len('Z5_STATE', idx)
-        for zone in dynamic_zones:
-            ensure_len(f'Z{zone}_STATE', idx)
-
-    return param_values
+from app.services.pol_con_decoder import (
+    _to_float,
+    find_pos_param,
+    get_hex_string_from_bytes,
+    match_byte,
+)
+from app.services.pol_con_maps import CON_MAP, POL_MAP
 
 
 def encode_pol_con_bytes(
-    original_hex: str,
-    original_param_values: dict[str, list[Any]],
-    edited_rows: list[dict[str, Any]],
-    dynamic_zones: list[int] | None = None,
+    original_bytes: bytes,
+    updated_param_values: dict[str, list[Any]],
+    is_con: bool,
 ) -> bytes:
-    _ = update_param_values_from_grid(original_param_values, edited_rows, dynamic_zones)
-    raise NotImplementedError(
-        '역인코딩은 원본 block header / payload length / step별 binary layout 보존 규칙이 확정된 뒤 구현하는 것이 안전합니다.'
-    )
+    """Patch-in-place: replaces only the value bytes of each param block.
+
+    The file structure (headers, param IDs, block layout) is preserved exactly.
+    Only the data payload bytes corresponding to keys in updated_param_values
+    are overwritten.
+    """
+    param_map = CON_MAP if is_con else POL_MAP
+    hex_string = get_hex_string_from_bytes(original_bytes)
+    total_count = len(hex_string)
+
+    try:
+        step_num = int(hex_string[20:22], 16)
+    except Exception:
+        step_num = 1
+    if step_num <= 0:
+        step_num = 1
+
+    param_anchor = '0010' if is_con else 'C003'
+    point = find_pos_param(param_anchor, hex_string)
+    if point is None:
+        raise ValueError(f'Anchor {param_anchor} not found in file')
+
+    hex_chars = list(hex_string)
+
+    while True:
+        if point >= total_count - 4:
+            break
+
+        param_id = hex_string[point:point + 4].upper()
+        data_length = match_byte(hex_string[point + 4:point + 8], step_num)
+
+        if data_length == 0:
+            block_hex_len = 16
+            values_start = point + 12
+            step_count = 1
+        elif data_length == 1:
+            block_hex_len = 20
+            values_start = point + 12
+            step_count = 1
+        elif data_length in (2, 4, 8, 16):
+            block_hex_len = 4 + 8 + step_num * data_length * 2
+            values_start = point + 12
+            step_count = step_num
+        else:
+            chunk_count = max(1, int(data_length / 4)) if data_length else 1
+            point += 4 + 8 + chunk_count * 8
+            continue
+
+        mapped = param_map.get(param_id, param_id)
+        new_values = (
+            updated_param_values.get(mapped)
+            or updated_param_values.get(f'{mapped}__{param_id}')
+        )
+
+        if new_values is not None:
+            _patch_values(hex_chars, values_start, step_count, data_length, new_values)
+
+        point += block_hex_len
+
+    return bytes.fromhex(''.join(hex_chars))
+
+
+def _patch_values(
+    hex_chars: list[str],
+    values_start: int,
+    step_count: int,
+    data_length: int,
+    new_values: list[Any],
+) -> None:
+    for i in range(step_count):
+        val = new_values[i] if i < len(new_values) else (new_values[-1] if new_values else 0)
+
+        if data_length in (0, 2):
+            pos = values_start + i * 4
+            packed = struct.pack('<h', max(-32768, min(32767, int(round(_to_float(val) or 0.0)))))
+            _write_hex(hex_chars, pos, packed)
+        elif data_length in (1, 4):
+            pos = values_start + i * 8
+            packed = struct.pack('<f', float(_to_float(val) or 0.0))
+            _write_hex(hex_chars, pos, packed)
+        elif data_length == 8:
+            pos = values_start + i * 16
+            v = val if isinstance(val, list) else [val, 0.0]
+            while len(v) < 2:
+                v.append(0.0)
+            packed = struct.pack('<ff', float(_to_float(v[0]) or 0.0), float(_to_float(v[1]) or 0.0))
+            _write_hex(hex_chars, pos, packed)
+        elif data_length == 16:
+            pos = values_start + i * 32
+            v = val if isinstance(val, list) else [val, 0.0, 0.0, 0.0]
+            while len(v) < 4:
+                v.append(0.0)
+            packed = struct.pack('<ffff', *[float(_to_float(x) or 0.0) for x in v[:4]])
+            _write_hex(hex_chars, pos, packed)
+
+
+def _write_hex(hex_chars: list[str], pos: int, packed: bytes) -> None:
+    encoded = packed.hex().upper()
+    for j, ch in enumerate(encoded):
+        if pos + j < len(hex_chars):
+            hex_chars[pos + j] = ch

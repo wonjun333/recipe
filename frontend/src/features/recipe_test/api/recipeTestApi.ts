@@ -17,6 +17,19 @@ export type RecipeSourceKind =
   | 'vaporDryer'
   | 'metrologyRecipe'
 
+export type PolConEditableModel = {
+  paramValues: Record<string, Array<number | number[]>>
+  dynamicZones: number[]
+  platenIndex?: number | null
+}
+
+export type RecipeMeta = {
+  sourceType?: 'pol' | 'con'
+  stepCount?: number
+  stepNames?: Record<string, string>
+  editableModel?: PolConEditableModel
+}
+
 export type RecipeDetail = {
   id: string
   name: string
@@ -24,6 +37,7 @@ export type RecipeDetail = {
   rows: GridRow[]
   modifiedAt?: string
   sourceKind?: RecipeSourceKind
+  meta?: RecipeMeta
 }
 
 export type FileEntry = {
@@ -180,4 +194,26 @@ export const recipeTestApi = {
   getHistoryComments() { return http<HistoryCommentsResponse>('/api/recipe-test/history-comments') },
   putHistoryComment(groupKey: string, comment: string, commentAuthor = '') { return http<{ status: string }>('/api/recipe-test/history-comment', { method: 'PUT', body: JSON.stringify({ groupKey, comment, commentAuthor }) }) },
   cloneRecipe(eqpId: string, sourceRecipeName: string, targetRecipeName: string, sourceKind: RecipeSourceKind, actorName = '', actorTeam = '') { return http<CloneRecipeResponse>('/api/recipe-test/recipe/clone', { method: 'POST', body: JSON.stringify({ eqpId, sourceRecipeName, targetRecipeName, sourceKind, actorName, actorTeam }) }) },
+  async encodePolCon(eqpId: string, recipeId: string, updatedParamValues: Record<string, number[]>, fileName = ''): Promise<Blob> {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 60000)
+    try {
+      const res = await fetch(`${API_BASE}/api/recipe-test/pol-con-encode`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eqpId, recipeId, updatedParamValues, fileName }),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = text.slice(0, 200)
+        try { detail = JSON.parse(text)?.detail ?? detail } catch { /* ignore */ }
+        throw new ApiError(detail || 'Encoding failed', res.status, text)
+      }
+      return res.blob()
+    } finally {
+      clearTimeout(timer)
+    }
+  },
 }
