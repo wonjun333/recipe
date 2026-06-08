@@ -203,6 +203,34 @@ def _ensure_schema_sqlite(conn) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_recipe_history_created ON recipe_history (created_at);
 
+        CREATE TABLE IF NOT EXISTS recipe_history_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            history_id INTEGER NOT NULL,
+            seq_no INTEGER NOT NULL DEFAULT 0,
+            revise_column TEXT NOT NULL DEFAULT '',
+            revise_index INTEGER NOT NULL DEFAULT 0,
+            display_before TEXT NOT NULL DEFAULT '',
+            display_after TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (history_id) REFERENCES recipe_history(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_revisions_history ON recipe_history_revisions (history_id, seq_no);
+
+        CREATE TABLE IF NOT EXISTS recipe_history_revision_values (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id INTEGER NOT NULL,
+            value_seq INTEGER NOT NULL DEFAULT 0,
+            component_key TEXT NOT NULL DEFAULT '',
+            component_label TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            before_value TEXT NOT NULL DEFAULT '',
+            after_value TEXT NOT NULL DEFAULT '',
+            before_text TEXT NOT NULL DEFAULT '',
+            after_text TEXT NOT NULL DEFAULT '',
+            source_param_key TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (revision_id) REFERENCES recipe_history_revisions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_revision_values_revision ON recipe_history_revision_values (revision_id, value_seq);
+
         CREATE TABLE IF NOT EXISTS recipe_history_comments (
             group_key TEXT PRIMARY KEY,
             comment TEXT NOT NULL DEFAULT '',
@@ -328,6 +356,34 @@ def _ensure_schema_postgres(conn) -> None:
             updated_at TEXT NOT NULL DEFAULT ''
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS recipe_history_revisions (
+            id BIGSERIAL PRIMARY KEY,
+            history_id BIGINT NOT NULL REFERENCES recipe_history(id) ON DELETE CASCADE,
+            seq_no INTEGER NOT NULL DEFAULT 0,
+            revise_column TEXT NOT NULL DEFAULT '',
+            revise_index INTEGER NOT NULL DEFAULT 0,
+            display_before TEXT NOT NULL DEFAULT '',
+            display_after TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_history_revisions_history ON recipe_history_revisions (history_id, seq_no)",
+        """
+        CREATE TABLE IF NOT EXISTS recipe_history_revision_values (
+            id BIGSERIAL PRIMARY KEY,
+            revision_id BIGINT NOT NULL REFERENCES recipe_history_revisions(id) ON DELETE CASCADE,
+            value_seq INTEGER NOT NULL DEFAULT 0,
+            component_key TEXT NOT NULL DEFAULT '',
+            component_label TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            before_value TEXT NOT NULL DEFAULT '',
+            after_value TEXT NOT NULL DEFAULT '',
+            before_text TEXT NOT NULL DEFAULT '',
+            after_text TEXT NOT NULL DEFAULT '',
+            source_param_key TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_history_revision_values_revision ON recipe_history_revision_values (revision_id, value_seq)",
     ]
     for stmt in stmts:
         conn.execute(stmt)
@@ -937,6 +993,8 @@ def save_user_preferences(login_id: str, line: str, team: str) -> None:
 
 def _history_row_to_dict(row: Any) -> dict[str, Any]:
     return {
+        'id':          int(row['id'] or 0),
+        'historyId':   int(row['id'] or 0),
         'actorName':   str(row['actor_name']    or ''),
         'actorTeam':   str(row['actor_team']    or ''),
         'fromEqpId':   str(row['from_eqp_id']   or ''),
@@ -957,43 +1015,230 @@ def _history_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
-def insert_history_entry(entry: dict[str, Any]) -> None:
+def _first_present(data: dict[str, Any], *keys: str, default: Any = '') -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return default
+
+
+def _int_or_default(value: Any, default: int = 0) -> int:
+    try:
+        text = str(value).strip()
+        return int(text) if text else default
+    except Exception:
+        return default
+
+
+def _revision_value_to_record(value: dict[str, Any], value_seq: int) -> dict[str, Any]:
+    return {
+        'valueSeq': _int_or_default(_first_present(value, 'valueSeq', 'value_seq', default=value_seq), value_seq),
+        'componentKey': str(_first_present(value, 'componentKey', 'component_key')),
+        'componentLabel': str(_first_present(value, 'componentLabel', 'component_label')),
+        'unit': str(_first_present(value, 'unit')),
+        'beforeValue': str(_first_present(value, 'beforeValue', 'before_value')),
+        'afterValue': str(_first_present(value, 'afterValue', 'after_value')),
+        'beforeText': str(_first_present(value, 'beforeText', 'before_text')),
+        'afterText': str(_first_present(value, 'afterText', 'after_text')),
+        'sourceParamKey': str(_first_present(value, 'sourceParamKey', 'source_param_key')),
+    }
+
+
+def _revision_to_record(revision: dict[str, Any], seq_no: int) -> dict[str, Any]:
+    raw_values = revision.get('values') if isinstance(revision.get('values'), list) else []
+    return {
+        'seqNo': _int_or_default(_first_present(revision, 'seqNo', 'seq_no', default=seq_no), seq_no),
+        'reviseColumn': str(_first_present(revision, 'reviseColumn', 'revise_column')),
+        'reviseIndex': _int_or_default(_first_present(revision, 'reviseIndex', 'revise_index')),
+        'displayBefore': str(_first_present(revision, 'displayBefore', 'display_before')),
+        'displayAfter': str(_first_present(revision, 'displayAfter', 'display_after')),
+        'values': [_revision_value_to_record(v, idx + 1) for idx, v in enumerate(raw_values) if isinstance(v, dict)],
+    }
+
+
+def insert_history_entry(entry: dict[str, Any]) -> int:
     ensure_schema()
+    revisions = [
+        _revision_to_record(item, idx + 1)
+        for idx, item in enumerate(entry.get('revisions') or [])
+        if isinstance(item, dict)
+    ]
     with _DB_LOCK:
         conn = _connect()
         try:
             _begin(conn)
-            conn.execute(
-                _sql("""
-                INSERT INTO recipe_history
-                (actor_name, actor_team, from_eqp_id, action, to_eqp_id, created_at,
-                 item_kind, source_name, target_name, recipe_name, request_id,
-                 status, reason, detail, knoxid, from_eqp_team, to_eqp_team)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """),
-                (
-                    str(entry.get('actorName')   or ''),
-                    str(entry.get('actorTeam')   or ''),
-                    str(entry.get('fromEqpId')   or ''),
-                    str(entry.get('action')       or ''),
-                    str(entry.get('toEqpId')     or ''),
-                    str(entry.get('createdAt')   or now_ts()),
-                    str(entry.get('itemKind')    or ''),
-                    str(entry.get('sourceName')  or ''),
-                    str(entry.get('targetName')  or ''),
-                    str(entry.get('recipeName')  or ''),
-                    str(entry.get('requestId')   or ''),
-                    str(entry.get('status')       or 'ok'),
-                    str(entry.get('reason')       or ''),
-                    str(entry.get('detail')       or ''),
-                    str(entry.get('knoxid')       or ''),
-                    str(entry.get('fromEqpTeam') or ''),
-                    str(entry.get('toEqpTeam')   or ''),
-                ),
+            history_values = (
+                str(entry.get('actorName')   or ''),
+                str(entry.get('actorTeam')   or ''),
+                str(entry.get('fromEqpId')   or ''),
+                str(entry.get('action')       or ''),
+                str(entry.get('toEqpId')     or ''),
+                str(entry.get('createdAt')   or now_ts()),
+                str(entry.get('itemKind')    or ''),
+                str(entry.get('sourceName')  or ''),
+                str(entry.get('targetName')  or ''),
+                str(entry.get('recipeName')  or ''),
+                str(entry.get('requestId')   or ''),
+                str(entry.get('status')       or 'ok'),
+                str(entry.get('reason')       or ''),
+                str(entry.get('detail')       or ''),
+                str(entry.get('knoxid')       or ''),
+                str(entry.get('fromEqpTeam') or ''),
+                str(entry.get('toEqpTeam')   or ''),
             )
+            if _USE_POSTGRES:
+                cur = conn.execute(
+                    """
+                    INSERT INTO recipe_history
+                    (actor_name, actor_team, from_eqp_id, action, to_eqp_id, created_at,
+                     item_kind, source_name, target_name, recipe_name, request_id,
+                     status, reason, detail, knoxid, from_eqp_team, to_eqp_team)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    history_values,
+                )
+                history_id = int(cur.fetchone()['id'])
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO recipe_history
+                    (actor_name, actor_team, from_eqp_id, action, to_eqp_id, created_at,
+                     item_kind, source_name, target_name, recipe_name, request_id,
+                     status, reason, detail, knoxid, from_eqp_team, to_eqp_team)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    history_values,
+                )
+                history_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
+
+            for revision in revisions:
+                if not revision['reviseColumn'] and not revision['values']:
+                    continue
+                if _USE_POSTGRES:
+                    cur = conn.execute(
+                        """
+                        INSERT INTO recipe_history_revisions
+                        (history_id, seq_no, revise_column, revise_index, display_before, display_after)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            history_id,
+                            revision['seqNo'],
+                            revision['reviseColumn'],
+                            revision['reviseIndex'],
+                            revision['displayBefore'],
+                            revision['displayAfter'],
+                        ),
+                    )
+                    revision_id = int(cur.fetchone()['id'])
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO recipe_history_revisions
+                        (history_id, seq_no, revise_column, revise_index, display_before, display_after)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            history_id,
+                            revision['seqNo'],
+                            revision['reviseColumn'],
+                            revision['reviseIndex'],
+                            revision['displayBefore'],
+                            revision['displayAfter'],
+                        ),
+                    )
+                    revision_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
+
+                for value in revision['values']:
+                    conn.execute(
+                        _sql("""
+                        INSERT INTO recipe_history_revision_values
+                        (revision_id, value_seq, component_key, component_label, unit,
+                         before_value, after_value, before_text, after_text, source_param_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """),
+                        (
+                            revision_id,
+                            value['valueSeq'],
+                            value['componentKey'],
+                            value['componentLabel'],
+                            value['unit'],
+                            value['beforeValue'],
+                            value['afterValue'],
+                            value['beforeText'],
+                            value['afterText'],
+                            value['sourceParamKey'],
+                        ),
+                    )
             conn.commit()
+            return history_id
         finally:
             conn.close()
+
+
+def _list_revision_rows(conn, history_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    if not history_ids:
+        return {}
+    placeholders = ', '.join(['?'] * len(history_ids))
+    revision_rows = conn.execute(
+        _sql(f"""
+        SELECT *
+        FROM recipe_history_revisions
+        WHERE history_id IN ({placeholders})
+        ORDER BY history_id, seq_no, id
+        """),
+        tuple(history_ids),
+    ).fetchall()
+    revision_map: dict[int, list[dict[str, Any]]] = {}
+    revision_ids: list[int] = []
+    revision_by_id: dict[int, dict[str, Any]] = {}
+    for row in revision_rows:
+        revision_id = int(row['id'] or 0)
+        history_id = int(row['history_id'] or 0)
+        revision = {
+            'id': revision_id,
+            'revisionId': revision_id,
+            'seqNo': int(row['seq_no'] or 0),
+            'reviseColumn': str(row['revise_column'] or ''),
+            'reviseIndex': int(row['revise_index'] or 0),
+            'displayBefore': str(row['display_before'] or ''),
+            'displayAfter': str(row['display_after'] or ''),
+            'values': [],
+        }
+        revision_map.setdefault(history_id, []).append(revision)
+        revision_by_id[revision_id] = revision
+        revision_ids.append(revision_id)
+
+    if revision_ids:
+        value_placeholders = ', '.join(['?'] * len(revision_ids))
+        value_rows = conn.execute(
+            _sql(f"""
+            SELECT *
+            FROM recipe_history_revision_values
+            WHERE revision_id IN ({value_placeholders})
+            ORDER BY revision_id, value_seq, id
+            """),
+            tuple(revision_ids),
+        ).fetchall()
+        for row in value_rows:
+            revision = revision_by_id.get(int(row['revision_id'] or 0))
+            if revision is None:
+                continue
+            revision['values'].append({
+                'id': int(row['id'] or 0),
+                'valueSeq': int(row['value_seq'] or 0),
+                'componentKey': str(row['component_key'] or ''),
+                'componentLabel': str(row['component_label'] or ''),
+                'unit': str(row['unit'] or ''),
+                'beforeValue': str(row['before_value'] or ''),
+                'afterValue': str(row['after_value'] or ''),
+                'beforeText': str(row['before_text'] or ''),
+                'afterText': str(row['after_text'] or ''),
+                'sourceParamKey': str(row['source_param_key'] or ''),
+            })
+    return revision_map
 
 
 def list_history_entries_db(limit: int = 500) -> list[dict[str, Any]]:
@@ -1004,7 +1249,11 @@ def list_history_entries_db(limit: int = 500) -> list[dict[str, Any]]:
             _sql('SELECT * FROM recipe_history ORDER BY created_at DESC LIMIT ?'),
             (max(1, min(int(limit or 500), 5000)),),
         ).fetchall()
-        return [_history_row_to_dict(row) for row in rows]
+        items = [_history_row_to_dict(row) for row in rows]
+        revision_map = _list_revision_rows(conn, [int(item['id']) for item in items])
+        for item in items:
+            item['revisions'] = revision_map.get(int(item['id']), [])
+        return items
     finally:
         conn.close()
 

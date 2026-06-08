@@ -26,6 +26,7 @@ class HistoryEntry:
     knoxid: str = ''
     fromEqpTeam: str = ''
     toEqpTeam: str = ''
+    revisions: list[dict[str, Any]] | None = None
 
 
 def _normalize_text(value: Any) -> str:
@@ -51,9 +52,14 @@ def append_history_entry(**kwargs: Any) -> dict[str, Any]:
         knoxid=_normalize_text(kwargs.get('knoxid')),
         fromEqpTeam=_normalize_text(kwargs.get('fromEqpTeam')),
         toEqpTeam=_normalize_text(kwargs.get('toEqpTeam')),
+        revisions=kwargs.get('revisions') if isinstance(kwargs.get('revisions'), list) else None,
     )
     d = asdict(entry)
-    insert_history_entry(d)
+    history_id = insert_history_entry(d)
+    d['id'] = history_id
+    d['historyId'] = history_id
+    if d.get('revisions') is None:
+        d['revisions'] = []
     return d
 
 
