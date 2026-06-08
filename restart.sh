@@ -5,9 +5,26 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_DIR/backend"
 SAML_DIR="$PROJECT_DIR/Nodejs_SAML"
 LOG_DIR="$BACKEND_DIR/logs"
+RESTART_PORTS=(8000 9000)
+
+kill_port_with_fuser() {
+    local PORT="$1"
+    if command -v fuser >/dev/null 2>&1; then
+        echo "  포트 $PORT fuser 정리 중..."
+        if [ "$(id -u)" -eq 0 ]; then
+            fuser -k "${PORT}/tcp" 2>/dev/null || true
+        else
+            sudo fuser -k "${PORT}/tcp" 2>/dev/null || true
+        fi
+    fi
+}
 
 # ── 1. 기존 프로세스 종료 ─────────────────────────────────────────
 echo "[1/4] 기존 프로세스 종료 중..."
+
+for PORT in "${RESTART_PORTS[@]}"; do
+    kill_port_with_fuser "$PORT"
+done
 
 pkill -f "uvicorn app.main:app" 2>/dev/null
 pkill -f "recipe_inventory_worker" 2>/dev/null
@@ -16,7 +33,7 @@ pkill -f "node.*Nodejs_SAML"    2>/dev/null
 sleep 2
 
 # 포트가 남아있으면 강제 종료
-for PORT in 8000 9000; do
+for PORT in "${RESTART_PORTS[@]}"; do
     PID=$(lsof -ti :$PORT 2>/dev/null)
     if [ -n "$PID" ]; then
         echo "  포트 $PORT 강제 종료 (PID: $PID)"
@@ -69,7 +86,7 @@ echo "  PID: $!"
 sleep 2
 echo ""
 echo "=== 서비스 상태 ==="
-for PORT in 8000 9000; do
+for PORT in "${RESTART_PORTS[@]}"; do
     PID=$(lsof -ti :$PORT 2>/dev/null)
     if [ -n "$PID" ]; then
         echo "  포트 $PORT: 실행 중 (PID: $PID)"
