@@ -186,6 +186,7 @@
       :inline-edit-mode="inlineEdit.mode"
       @toggle-inline-edit="toggleInlineEdit"
       @inline-cell-click="onInlineCellClick"
+      @inline-save="handleInlineSave"
       @inline-download="handleInlineDownload"
     />
 
@@ -738,8 +739,6 @@ const recipeSourceCache = reactive<Record<string, RecipeDetail[]>>({})
 const recipeSourceTitleMap = reactive<Record<string, string>>({ recipe: 'Recipe' })
 const snapshotCachedKinds = new Set<string>()
 const activeRecipeSourceKind = ref<RecipeSourceKind>(DEFAULT_RECIPE_SOURCE)
-const inventorySnapshotHash = ref('')
-let inventorySnapshotTimer: number | null = null
 
 /** sorting / list widths */
 const casSortKey = ref<null | 'name' | 'modifiedAt'>(null)
@@ -2158,27 +2157,65 @@ const inlineEdit = reactive<{
   recipe: import('../api/recipeTestApi').RecipeDetail | null
   edits: Record<string, number[]>
   endByDialog: { open: boolean; stepIndex: number }
+  saving: boolean
   downloadError: string
 }>({
   mode: false,
   recipe: null,
   edits: {},
   endByDialog: { open: false, stepIndex: -1 },
+  saving: false,
   downloadError: '',
 })
 
+function cancelInlineEdit() {
+  inlineEdit.mode = false
+  inlineEdit.recipe = null
+  inlineEdit.edits = {}
+  inlineEdit.endByDialog = { open: false, stepIndex: -1 }
+  inlineEdit.downloadError = ''
+  inlineEdit.saving = false
+}
+
 function toggleInlineEdit() {
   if (inlineEdit.mode) {
-    inlineEdit.mode = false
-    inlineEdit.recipe = null
-    inlineEdit.edits = {}
-    inlineEdit.endByDialog = { open: false, stepIndex: -1 }
+    cancelInlineEdit()
   } else {
     const r = selectedRecipeSingle.value
     if (!r) return
     inlineEdit.mode = true
     inlineEdit.recipe = r
     inlineEdit.edits = {}
+  }
+}
+
+async function handleInlineSave() {
+  if (!inlineEdit.recipe || inlineEdit.saving) return
+  inlineEdit.downloadError = ''
+  inlineEdit.saving = true
+  try {
+    const res = await recipeTestApi.savePolCon(
+      eqpId.value,
+      inlineEdit.recipe.id,
+      inlineEdit.edits,
+      inlineEdit.recipe.name,
+      getActorName(),
+      getActorTeam(),
+    )
+    if (res.recipe) {
+      replaceRecipeDetail(res.recipe)
+      selectedRecipes.clear()
+      selectedRecipes.add(res.recipe.id)
+      lastRecipe.value = res.recipe.id
+      setRecipeFindProgram(displayRecipeName(res.recipe.name, res.recipe.sourceKind ?? activeRecipeSourceKind.value))
+    }
+    cancelInlineEdit()
+    void loadHistory()
+  } catch (e: any) {
+    inlineEdit.downloadError = e?.message ?? 'Save failed'
+    window.alert(`RECIPE 저장 실패: ${inlineEdit.downloadError}`)
+  } finally {
+    inlineEdit.saving = false
   }
 }
 
@@ -3952,6 +3989,13 @@ function onGlobalClickCapture(ev: MouseEvent){
   if(recipePanelOpen.value){
     if(Date.now() < suppressOutsideCloseUntil) return
     const panel = legacyPanelEl.value
+    if(inlineEdit.mode){
+      const preview = panel?.querySelector('.grid-wrap')
+      if(!preview || !preview.contains(target)){
+        cancelInlineEdit()
+        if(panel && panel.contains(target)) return
+      }
+    }
     if(panel && panel.contains(target)) return
     closeRecipePanel()
   }
@@ -4165,92 +4209,6 @@ function clearLoadedDataState(){
   resetPageToBlank()
   closeRecipePanel()
   resetCasScrollToLeftTop()
-  inventorySnapshotHash.value = ''
-  stopInventorySnapshotPolling()
-}
-
-
-function buildRecipeFromSnapshotItem(item: any, sourceKindOverride?: RecipeSourceKind) {
-  const sourceKind = (sourceKindOverride || item.sourceKind || 'recipe') as RecipeSourceKind
-  const id = String(item.id || `RCP_SRC::${sourceKind}::${item.name || ''}`)
-  const name = String(item.name || '')
-  const modifiedAt = String(item.modifiedAt || '')
-  return NO_PREVIEW_SOURCE_KINDS.has(sourceKind)
-    ? createNoPreviewRecipe(id, name, modifiedAt, sourceKind)
-    : createPlaceholderRecipe(id, name, `${recipeSourceTitleMap[sourceKind] || 'Recipe'} preview placeholder`, modifiedAt, sourceKind)
-}
-
-const inventorySnapshotReloading = ref(false)
-
-function applyInventoryRecipeSnapshot(snapshot: any) {
-  if (!snapshot || typeof snapshot !== 'object') return
-  inventorySnapshotHash.value = String(snapshot.snapshotHash || '')
-  const titles = (snapshot.sourceTitles || {}) as Record<string, string>
-  Object.entries(titles).forEach(([k, v]) => { recipeSourceTitleMap[k] = String(v || '') })
-
-  const nextSourceCache: Record<string, RecipeDetail[]> = {}
-  const sourceLists = (snapshot.sourceLists || {}) as Record<string, any[]>
-  Object.entries(sourceLists).forEach(([kind, items]) => {
-    nextSourceCache[kind] = (Array.isArray(items) ? items : []).map((item: any) => buildRecipeFromSnapshotItem(item, kind as RecipeSourceKind))
-  })
-
-  const recipeUnion = (Array.isArray(snapshot.items) ? snapshot.items : []).map((item: any) => buildRecipeFromSnapshotItem(item, item.sourceKind || 'recipe'))
-  nextSourceCache.recipe = recipeUnion
-
-  Object.keys(recipeSourceCache).forEach((k) => {
-    if (!(k in nextSourceCache)) delete recipeSourceCache[k]
-  })
-  Object.entries(nextSourceCache).forEach(([k, v]) => {
-    if (v.length === 0 && (recipeSourceCache[k]?.length ?? 0) > 0) return
-    recipeSourceCache[k] = v
-    // Non-recipe kinds populated from snapshot (DB-only): mark for API refresh in primeRecipeSourceCache
-    if (k !== 'recipe' && v.length > 0) snapshotCachedKinds.add(k)
-  })
-
-  if (activeRecipeSourceKind.value === 'recipe') {
-    recipesData.value = [...recipeUnion]
-    sortRecipesData()
-  } else if (recipeSourceCache[activeRecipeSourceKind.value]?.length) {
-    recipesData.value = [...recipeSourceCache[activeRecipeSourceKind.value]]
-    sortRecipesData()
-  }
-}
-
-async function pollInventoryRecipeSnapshot() {
-  if (!eqpId.value || !hasLoadedFiles.value || inventorySnapshotReloading.value || recipePicker.open) return
-  try {
-    const snapshot = await recipeTestApi.getInventoryRecipeSnapshot(eqpId.value)
-    const nextHash = String(snapshot.snapshotHash || '')
-    if (!inventorySnapshotHash.value) {
-      applyInventoryRecipeSnapshot(snapshot)
-      return
-    }
-    if (nextHash !== inventorySnapshotHash.value) {
-      inventorySnapshotReloading.value = true
-      try {
-        inventorySnapshotHash.value = nextHash
-        const spec = captureReloadRestoreSpec({ keepRecipePanel: recipePanelOpen.value })
-        try { await recipeTestApi.invalidateRuntimeCache(eqpId.value) } catch {}
-        await reloadAndRestoreSelections(spec)
-      } finally {
-        inventorySnapshotReloading.value = false
-      }
-    }
-  } catch (err) {
-    console.warn('inventory snapshot poll failed', err)
-  }
-}
-
-function startInventorySnapshotPolling() {
-  stopInventorySnapshotPolling()
-  inventorySnapshotTimer = window.setInterval(() => { void pollInventoryRecipeSnapshot() }, 3000)
-}
-
-function stopInventorySnapshotPolling() {
-  if (inventorySnapshotTimer !== null) {
-    window.clearInterval(inventorySnapshotTimer)
-    inventorySnapshotTimer = null
-  }
 }
 
 /** load */
@@ -4306,10 +4264,6 @@ async function load(keepRecipePanel:boolean){
     recipeSourceTitleMap.recipe = 'Recipe'
     activeRecipeSourceKind.value = 'recipe'
 
-    inventorySnapshotHash.value = ''
-    startInventorySnapshotPolling()
-    void pollInventoryRecipeSnapshot()
-
     resetPageToBlank()
     if(!keepRecipePanel) closeRecipePanel()
     resetCasScrollToLeftTop()
@@ -4360,7 +4314,6 @@ onMounted(async () => {
   updateCartOverlayPos()
 })
 onBeforeUnmount(() => {
-  stopInventorySnapshotPolling()
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('click', onGlobalClickCapture, true)
   window.removeEventListener('resize', updateCartOverlayPos)

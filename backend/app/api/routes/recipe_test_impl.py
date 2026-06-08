@@ -37,7 +37,7 @@ from app.services.history_service import append_history_entry, list_history_entr
 from app.routers.auth import get_user_from_request
 from app.services.history_comment_store import get_all_comments, set_comment as set_history_comment
 from app.services.recipe_inventory_sync import load_pol_system_cfg_live, list_cached_or_live_entries_for_source
-from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes
+from app.services.recipe_cache_store import get_latest_version, get_latest_version_bytes, store_file_version
 from app.services.recipe_vm_store import read_vm_file_bytes as read_vm_recipe_bytes
 
 router = APIRouter(prefix="/recipe-test", tags=["recipe-test"])
@@ -52,6 +52,14 @@ JOB_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 RECIPE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
 RECIPE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 RECIPE_SOURCE_CACHE_TTL_SEC = 10.0
+
+
+def clear_runtime_cache_for_eqp(eqp_id: str) -> None:
+    BOOTSTRAP_CACHE.pop(eqp_id, None)
+    for cache in (CAS_CACHE, JOB_CACHE, RECIPE_CACHE, RECIPE_SOURCE_CACHE):
+        keys_to_del = [k for k in cache if k[0] == eqp_id]
+        for k in keys_to_del:
+            cache.pop(k, None)
 
 
 def _get_recipe_source_cached(cache_key: tuple[str, str]) -> dict[str, Any] | None:
@@ -1764,12 +1772,25 @@ def get_eqp_options():
 @router.post("/load")
 def load_recipe_test(req: LoadRequest):
     try:
+        clear_runtime_cache_for_eqp(req.eqpId)
         ftp_ip, ftp_id, ftp_pw = load_eqp_ip(req.eqpId)
 
         ftp_result = get_ftp_file_list(ftp_ip, ftp_id, ftp_pw)
         cas_entries = ftp_result["cas_list"]
         job_entries = ftp_result["job_list"]
         recipe_entries = ftp_result["recipe_list"]
+        try:
+            recipe_cfg = RECIPE_SOURCE_CONFIG.get('recipe', {})
+            recipe_entries = list_cached_or_live_entries_for_source(
+                req.eqpId,
+                str(recipe_cfg.get('path') or r'\CMPDB\Lcmp\Recipes'),
+                list(recipe_cfg.get('exts') or []),
+                ftp_ip,
+                ftp_id,
+                ftp_pw,
+            )
+        except Exception:
+            pass
 
         recipe_list = [
             {"id": make_recipe_id(x["name"]), "name": x["name"], "modifiedAt": x["modifiedAt"]}
@@ -2304,15 +2325,20 @@ class InvalidateCacheRequest(BaseModel):
 @router.post('/invalidate-runtime-cache')
 def invalidate_runtime_cache(req: InvalidateCacheRequest):
     eqp_id = req.eqpId
-    BOOTSTRAP_CACHE.pop(eqp_id, None)
-    for cache in (CAS_CACHE, JOB_CACHE, RECIPE_CACHE, RECIPE_SOURCE_CACHE):
-        keys_to_del = [k for k in cache if k[0] == eqp_id]
-        for k in keys_to_del:
-            cache.pop(k, None)
+    clear_runtime_cache_for_eqp(eqp_id)
     return {'status': 'ok', 'eqpId': eqp_id}
 
 
 class PolConEncodeRequest(BaseModel):
+    eqpId: str
+    recipeId: str
+    updatedParamValues: dict[str, list[Any]]
+    fileName: str = ''
+    actorName: str = ''
+    actorTeam: str = ''
+
+
+class PolConSaveRequest(BaseModel):
     eqpId: str
     recipeId: str
     updatedParamValues: dict[str, list[Any]]
@@ -2375,3 +2401,108 @@ def encode_pol_con(req: PolConEncodeRequest, request: Request):
         media_type='application/octet-stream',
         headers={'Content-Disposition': f'attachment; filename="{out_name}"'},
     )
+
+
+@router.post('/pol-con-save')
+def save_pol_con(req: PolConSaveRequest, request: Request):
+    from app.services.pol_con_encoder import encode_pol_con_bytes
+
+    source_parsed = parse_source_recipe_id(req.recipeId)
+    if not source_parsed:
+        raise HTTPException(status_code=400, detail='pol/con source recipe만 저장 가능합니다.')
+
+    source_kind, recipe_name = source_parsed
+    lower = recipe_name.lower()
+    is_con = lower.endswith('.con')
+    if not (lower.endswith('.pol') or is_con):
+        raise HTTPException(status_code=400, detail='.pol 또는 .con 파일만 저장 가능합니다.')
+
+    if MOCK_MODE:
+        raise HTTPException(status_code=400, detail='Mock 모드에서는 바이너리 원본이 없어 저장을 지원하지 않습니다.')
+
+    config = RECIPE_SOURCE_CONFIG.get(source_kind)
+    if not config:
+        raise HTTPException(status_code=404, detail=f'recipe source config 없음: {source_kind}')
+
+    path = str(config['path'])
+    out_name = (req.fileName.strip() or recipe_name).strip()
+    try:
+        out_name = validate_ascii_target_name(out_name)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    out_lower = out_name.lower()
+    if is_con and not out_lower.endswith('.con'):
+        out_name += '.con'
+    elif not is_con and not out_lower.endswith('.pol'):
+        out_name += '.pol'
+
+    ftp_ip, ftp_id, ftp_pw = load_eqp_ip(req.eqpId)
+
+    try:
+        original_bytes = svc_ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
+    except Exception:
+        original_bytes = (
+            get_latest_version_bytes(req.eqpId, path, recipe_name)
+            or read_vm_recipe_bytes(req.eqpId, path, recipe_name)
+        )
+
+    if not original_bytes:
+        raise HTTPException(status_code=404, detail='원본 파일 bytes를 가져올 수 없습니다.')
+
+    try:
+        encoded = encode_pol_con_bytes(original_bytes, req.updatedParamValues, is_con)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'인코딩 실패: {e}')
+
+    try:
+        write_local_shadow_file(out_name, encoded)
+        ftp_write_bytes_at_path(ftp_ip, ftp_id, ftp_pw, path, out_name, encoded)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=format_ftp_error(e))
+
+    modified_at = now_history_ts()
+    recipe_id = make_source_recipe_id(source_kind, out_name)
+    preview_context = {'eqpId': req.eqpId}
+    try:
+        preview_context['slurryConfig'] = load_pol_system_cfg(req.eqpId)
+    except Exception:
+        pass
+    preview = build_recipe_preview_from_bytes(recipe_id, out_name, modified_at, source_kind, encoded, preview_context)
+    if not preview:
+        preview = create_no_preview_recipe(recipe_id, out_name, modified_at, source_kind)
+
+    try:
+        store_file_version(
+            req.eqpId,
+            path,
+            out_name,
+            modified_at,
+            str(len(encoded)),
+            encoded,
+            preview,
+            capture_reason='web_edit',
+            metadata={'liveModifiedAt': modified_at, 'liveSize': str(len(encoded))},
+        )
+    except Exception:
+        pass
+
+    RECIPE_CACHE[(req.eqpId, recipe_id)] = preview
+    RECIPE_SOURCE_CACHE.pop((req.eqpId, source_kind), None)
+    if out_name != recipe_name:
+        update_recipe_source_cache_name(req.eqpId, source_kind, recipe_name, out_name)
+
+    user = get_user_from_request(request)
+    actor_name = user.get('Username') or req.actorName
+    knoxid = user.get('MailAccount', '')
+    action_name = 'Edit' if out_name == recipe_name else 'Save As'
+    record_history(action_name, actor_name, req.eqpId, req.eqpId, source_kind, recipe_name, out_name,
+                   knoxid=knoxid, from_eqp_team=req.actorTeam, to_eqp_team=req.actorTeam,
+                   recipe_name=out_name, detail=f'{recipe_name} → {out_name}')
+
+    return {
+        'status': 'saved_to_ftp',
+        'savedAs': out_name,
+        'targetPath': path,
+        'recipe': preview.get('recipe'),
+    }

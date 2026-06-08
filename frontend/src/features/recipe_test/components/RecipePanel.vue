@@ -154,6 +154,7 @@
               </button>
               <template v-else>
                 <span class="edit-mode-badge">EDIT MODE</span>
+                <button class="win-btn edit-save-btn" type="button" @click.stop="emit('inline-save')">Save</button>
                 <button class="win-btn edit-dl-btn" type="button" @click.stop="emit('inline-download')">Download</button>
                 <button class="win-btn" type="button" @click.stop="emit('toggle-inline-edit')">Cancel</button>
               </template>
@@ -272,6 +273,7 @@ const emit = defineEmits<{
   (e: 'edit-recipe', recipe: RecipeDetail): void
   (e: 'toggle-inline-edit'): void
   (e: 'inline-cell-click', payload: { rowIndex: number; column: string }): void
+  (e: 'inline-save'): void
   (e: 'inline-download'): void
 }>()
 

@@ -124,6 +124,7 @@ export type RecipeContentResponse = { recipe: RecipeDetail }
 export type PersistCasResponse = { status: string; savedAs: string; targetPath: string }
 export type PersistJobResponse = { status: string; savedAs: string; targetPath: string; patternSummary?: Record<string, number> }
 export type CloneRecipeResponse = { status: string; savedAs: string; targetPath: string; overwrote?: boolean }
+export type PolConSaveResponse = { status: string; savedAs: string; targetPath: string; recipe: RecipeDetail }
 export type RenameFileRequest = { eqpId: string; kind: 'cas' | 'job' | 'recipe'; sourceName: string; targetName: string; sourceKind?: RecipeSourceKind; actorName?: string; actorTeam?: string }
 export type RenameFileResponse = { status: string; name: string; path: string; overwrote?: boolean }
 export type DeleteFileItem = { kind: 'cas' | 'job' | 'recipe'; name: string; sourceKind?: RecipeSourceKind }
@@ -220,5 +221,11 @@ export const recipeTestApi = {
     } finally {
       clearTimeout(timer)
     }
+  },
+  savePolCon(eqpId: string, recipeId: string, updatedParamValues: Record<string, number[]>, fileName = '', actorName = '', actorTeam = '') {
+    return http<PolConSaveResponse>('/api/recipe-test/pol-con-save', {
+      method: 'POST',
+      body: JSON.stringify({ eqpId, recipeId, updatedParamValues, fileName, actorName, actorTeam }),
+    }, 60000)
   },
 }
