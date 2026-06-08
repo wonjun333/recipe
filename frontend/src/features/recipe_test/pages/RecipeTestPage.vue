@@ -1460,8 +1460,6 @@ const casContentVisible = computed(() => {
   return !!casSelectedSingle.value || casEditMode.value
 })
 
-const singleLinkedJobMode = computed(() => !!casSelectedSingle.value && selectedJobs.size === 1)
-
 const casPanelStyle = computed(() => {
   const w = 'clamp(351px, 22.5vw, 450px)'
   const minW = '351px'
@@ -1477,22 +1475,20 @@ const casContentStyle = computed(() => {
 })
 
 const jobPanelStyle = computed(() => {
-  let w = (activePane.value === 'jobList' || showJobContent.value)
+  const w = (activePane.value === 'jobList' || showJobContent.value)
     ? 'clamp(599px, 36.5vw, 750px)'
     : 'clamp(400px, 20vw, 500px)'
-
-  if (singleLinkedJobMode.value && showJobContent.value) {
-    w = 'clamp(500px, 30vw, 600px)'
-  }
   return { height: listPaneHeight, width: w, flexBasis: w }
 })
 
 const contentPaneStyle = computed(() => {
-  const expandedForJobList = showJobContent.value
+  const expandedWidth = casContentVisible.value
+    ? 'clamp(430px, 28vw, 560px)'
+    : 'clamp(720px, 54vw, 960px)'
   return {
     flexGrow: '0',
-    width: expandedForJobList ? 'clamp(720px, 54vw, 960px)' : 'max-content',
-    flexBasis: expandedForJobList ? 'clamp(720px, 54vw, 960px)' : 'max-content',
+    width: showJobContent.value ? expandedWidth : 'max-content',
+    flexBasis: showJobContent.value ? expandedWidth : 'max-content',
     flexShrink: '0',
   }
 })
@@ -4126,6 +4122,24 @@ function onKeyDown(ev: KeyboardEvent){
     if(!isTypingTarget(ev) && ev.key === 'Enter'){
       ev.preventDefault()
       if(previewRecipe.value) pickRecipeForJob(previewRecipe.value)
+      return
+    }
+  }
+
+  if(ev.key === 'Escape'){
+    if(inlineEdit.mode){
+      ev.preventDefault()
+      requestInlineEditCancel()
+      return
+    }
+    if(jobEditMode.value){
+      ev.preventDefault()
+      jobCancelRequested()
+      return
+    }
+    if(casEditMode.value){
+      ev.preventDefault()
+      casCancelRequested()
       return
     }
   }
