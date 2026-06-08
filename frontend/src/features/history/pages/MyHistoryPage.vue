@@ -344,7 +344,7 @@ const groupedItems = computed<GroupedHistoryItem[]>(() => {
     const actorName = normalizeText((row as any).actorName) || 'Unknown'
     const knoxid = normalizeText((row as any).knoxid)
     const fromEqpId = normalizeText((row as any).fromEqpId)
-    const fromEqpTeam = normalizeText((row as any).fromEqpTeam || (row as any).actorTeam)
+    const fromEqpTeam = normalizeText((row as any).fromEqpTeam)
     const fromEqpDisplay = fromEqpId
     const toEqpId = normalizeText((row as any).toEqpId)
     const toEqpTeam = normalizeText((row as any).toEqpTeam)
