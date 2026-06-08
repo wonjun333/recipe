@@ -59,7 +59,7 @@
         :pane-focus="activePane==='casList'"
         :panel-style="casPanelStyle"
         :query-class="casClass"
-        :find-compact="isCasInactive"
+        :find-compact="false"
         :hint="casHint"
         :scroll-left="casScrollLeft"
         :list-mode="casListMode"
@@ -184,10 +184,11 @@
       @register-scroll-el="setRecipeScrollEl"
       @edit-recipe="openPolConEdit"
       :inline-edit-mode="inlineEdit.mode"
+      :inline-edit-values="inlineEdit.edits"
       @toggle-inline-edit="toggleInlineEdit"
       @inline-cell-click="onInlineCellClick"
       @inline-save="handleInlineSave"
-      @inline-download="handleInlineDownload"
+      @preview-download="handlePreviewDownload"
     />
 
     <Win97ContextMenu
@@ -554,17 +555,19 @@ function createPlaceholderRecipe(
   name: string,
   info = 'Select a recipe.',
   modifiedAt = '',
-  sourceKind: RecipeSourceKind = 'recipe'
+  sourceKind: RecipeSourceKind = 'recipe',
+  state: Pick<RecipeDetail, 'livePresent' | 'cloudProtected' | 'cached'> = {}
 ): RecipeDetail {
   const lower = String(name || '').toLowerCase()
   if (sourceKind === 'isrmAlgorithm' || sourceKind === 'rtpcRecipe' || lower.endsWith('.alg') || lower.endsWith('.seg') || lower.endsWith('.scx')) {
-    return createNoPreviewRecipe(id, name, modifiedAt, sourceKind)
+    return createNoPreviewRecipe(id, name, modifiedAt, sourceKind, state)
   }
   return {
     id,
     name,
     modifiedAt: displayModifiedTime(modifiedAt),
     sourceKind,
+    ...state,
     columns: ['Info'],
     rows: [{ Info: info }],
   }
@@ -573,15 +576,25 @@ function createNoPreviewRecipe(
   id: string,
   name: string,
   modifiedAt = '',
-  sourceKind: RecipeSourceKind = 'recipe'
+  sourceKind: RecipeSourceKind = 'recipe',
+  state: Pick<RecipeDetail, 'livePresent' | 'cloudProtected' | 'cached'> = {}
 ): RecipeDetail {
   return {
     id,
     name,
     modifiedAt: displayModifiedTime(modifiedAt),
     sourceKind,
+    ...state,
     columns: [],
     rows: [],
+  }
+}
+
+function recipeStateFromItem(item: { livePresent?: boolean; cloudProtected?: boolean; cached?: boolean }) {
+  return {
+    livePresent: item.livePresent,
+    cloudProtected: item.cloudProtected,
+    cached: item.cached,
   }
 }
 
@@ -596,12 +609,12 @@ function upsertRecipeInSourceCache(detail: RecipeDetail) {
   const idx = cached.findIndex(r => r.id === detail.id)
   const next = { ...detail, sourceKind }
   if (idx >= 0) {
-    recipeSourceCache[sourceKind] = [...cached.slice(0, idx), next, ...cached.slice(idx + 1)]
+    recipeSourceCache[sourceKind] = [...cached.slice(0, idx), { ...cached[idx], ...next }, ...cached.slice(idx + 1)]
     return
   }
   const sameNameIdx = cached.findIndex(r => recipeDisplayNameEquals(r.name, next.name, sourceKind))
   if (sameNameIdx >= 0) {
-    recipeSourceCache[sourceKind] = [...cached.slice(0, sameNameIdx), next, ...cached.slice(sameNameIdx + 1)]
+    recipeSourceCache[sourceKind] = [...cached.slice(0, sameNameIdx), { ...cached[sameNameIdx], ...next }, ...cached.slice(sameNameIdx + 1)]
   }
 }
 function replaceRecipeDetail(detail: RecipeDetail) {
@@ -614,7 +627,7 @@ function replaceRecipeDetail(detail: RecipeDetail) {
   if (idx >= 0) {
     const prev = recipesData.value[idx]
     const nextModifiedAt = String(normalized.modifiedAt ?? '').trim() || String(prev.modifiedAt ?? '').trim()
-    recipesData.value[idx] = { ...normalized, modifiedAt: displayModifiedTime(nextModifiedAt) }
+    recipesData.value[idx] = { ...prev, ...normalized, modifiedAt: displayModifiedTime(nextModifiedAt) }
   } else {
     const sameNameIdx = recipesData.value.findIndex(r => (r.sourceKind ?? normalized.sourceKind) === normalized.sourceKind && recipeDisplayNameEquals(r.name, normalized.name, normalized.sourceKind ?? DEFAULT_RECIPE_SOURCE))
     if (sameNameIdx >= 0) {
@@ -1376,8 +1389,8 @@ async function primeRecipeSourceCache(sourceKind: RecipeSourceKind) {
     recipeSourceTitleMap[sourceKind] = res.titleBase
     const items = res.items.map(item =>
       NO_PREVIEW_SOURCE_KINDS.has(item.sourceKind)
-        ? createNoPreviewRecipe(item.id, item.name, item.modifiedAt, item.sourceKind)
-        : createPlaceholderRecipe(item.id, item.name, `${res.titleBase} preview placeholder`, item.modifiedAt, item.sourceKind)
+        ? createNoPreviewRecipe(item.id, item.name, item.modifiedAt, item.sourceKind, recipeStateFromItem(item))
+        : createPlaceholderRecipe(item.id, item.name, `${res.titleBase} preview placeholder`, item.modifiedAt, item.sourceKind, recipeStateFromItem(item))
     )
     recipeSourceCache[sourceKind] = [...items]
   } catch (err) {
@@ -1443,23 +1456,15 @@ watch(() => selectedJobSingleReal.value?.id, (jobId) => {
   if (jobId) void refreshJobMissingRecipeMap(jobId)
 }, { immediate: true })
 
-const casContentCanShow = computed(() => {
-  return casEditMode.value || activePane.value === 'casList' || activePane.value === 'casContent'
-})
 const casContentVisible = computed(() => {
-  return !!casSelectedSingle.value && casContentCanShow.value
+  return !!casSelectedSingle.value || casEditMode.value
 })
 
-const isJobFocused = computed(() => activePane.value === 'jobContent' && showJobContent.value)
-const isCasInactive = computed(() => activePane.value !== 'casList' && activePane.value !== 'casContent')
 const singleLinkedJobMode = computed(() => !!casSelectedSingle.value && selectedJobs.size === 1)
 
 const casPanelStyle = computed(() => {
-  let w = 'clamp(351px, 22.5vw, 450px)'
-  let minW = '351px'
-  if (isCasInactive.value) { w = 'clamp(306px, 18vw, 360px)'; minW = '306px' }
-  if (isJobFocused.value || activePane.value === 'recipeArea') { w = 'clamp(306px, 18vw, 360px)'; minW = '306px' }
-
+  const w = 'clamp(351px, 22.5vw, 450px)'
+  const minW = '351px'
   return { height: listPaneHeight, width: w, flexBasis: w, minWidth: minW, flexShrink: '0' }
 })
 
@@ -1472,7 +1477,7 @@ const casContentStyle = computed(() => {
 })
 
 const jobPanelStyle = computed(() => {
-  let w = activePane.value === 'jobList'
+  let w = (activePane.value === 'jobList' || showJobContent.value)
     ? 'clamp(599px, 36.5vw, 750px)'
     : 'clamp(400px, 20vw, 500px)'
 
@@ -1483,7 +1488,7 @@ const jobPanelStyle = computed(() => {
 })
 
 const contentPaneStyle = computed(() => {
-  const expandedForJobList = activePane.value === 'jobList' && showJobContent.value
+  const expandedForJobList = showJobContent.value
   return {
     flexGrow: '0',
     width: expandedForJobList ? 'clamp(720px, 54vw, 960px)' : 'max-content',
@@ -1682,8 +1687,8 @@ async function ensureRecipeSourceLoaded(sourceKind: RecipeSourceKind) {
   recipeSourceTitleMap[sourceKind] = res.titleBase
   const items = res.items.map(item =>
     NO_PREVIEW_SOURCE_KINDS.has(item.sourceKind)
-      ? createNoPreviewRecipe(item.id, item.name, item.modifiedAt, item.sourceKind)
-      : createPlaceholderRecipe(item.id, item.name, `${res.titleBase} preview placeholder`, item.modifiedAt, item.sourceKind)
+      ? createNoPreviewRecipe(item.id, item.name, item.modifiedAt, item.sourceKind, recipeStateFromItem(item))
+      : createPlaceholderRecipe(item.id, item.name, `${res.titleBase} preview placeholder`, item.modifiedAt, item.sourceKind, recipeStateFromItem(item))
   )
   setActiveRecipeSource(sourceKind, items)
 }
@@ -1696,7 +1701,7 @@ async function onJobParsedValueClick(payload: JobRecipeClickPayload) {
 
   await ensureRecipeSourceLoaded(payload.sourceKind)
   const recipe = ensureRecipeByName(payload.value, payload.sourceKind)
-  void openRecipePanelWithRecipe(recipe, payload.platen ?? 1, payload.titleBase, payload.emphasizeText ?? '')
+  void openRecipePanelWithRecipe(recipe, payload.platen ?? 1, payload.titleBase, payload.emphasizeText ?? '', { preserveLayout: true })
 }
 
 function toggleJobParsedFlag(section: 'preMetrology' | 'postMetrology' | 'polisher' | 'cleaner', key: string, checked: boolean) {
@@ -2083,13 +2088,21 @@ async function reloadAndRestoreSelections(spec: ReloadRestoreSpec) {
 }
 
 let suppressOutsideCloseUntil = 0
-async function openRecipePanelWithRecipe(recipe: RecipeDetail, platen:1|2|3 = 1, titleBase = 'Recipe', emphasizeText = '') {
+async function openRecipePanelWithRecipe(
+  recipe: RecipeDetail,
+  platen:1|2|3 = 1,
+  titleBase = 'Recipe',
+  emphasizeText = '',
+  options: { preserveLayout?: boolean } = {},
+) {
   activePlaten.value = platen
   recipePanelTitleBase.value = titleBase || 'Recipe'
   recipePanelEmphasizeText.value = emphasizeText || ''
   recipePanelOpen.value = true
   recipeEditMode.value = false
-  activateArea('recipeArea', 'recipe')
+  if (!options.preserveLayout) {
+    activateArea('recipeArea', 'recipe')
+  }
 
   const recipeSourceKind = recipe.sourceKind ?? activeRecipeSourceKind.value
   const preferred = isTempSourceRecipeId(recipe.id)
@@ -2177,15 +2190,75 @@ function cancelInlineEdit() {
   inlineEdit.saving = false
 }
 
+function inlineEditDirty() {
+  return Object.keys(inlineEdit.edits).some(key => Array.isArray(inlineEdit.edits[key]) && inlineEdit.edits[key].length > 0)
+}
+
+function requestInlineEditCancel(afterCancel?: () => void) {
+  if (!inlineEdit.mode) {
+    afterCancel?.()
+    return
+  }
+  if (!inlineEditDirty()) {
+    cancelInlineEdit()
+    afterCancel?.()
+    return
+  }
+  openConfirm({
+    title: 'Confirm',
+    tone: 'default',
+    message: '수정을 종료하시겠습니까? 종료시에 변경 내용은 저장되지않습니다.',
+    onYes: () => {
+      cancelInlineEdit()
+      afterCancel?.()
+    },
+    onNo: () => {},
+  })
+}
+
+function beginInlineEdit(recipe: import('../api/recipeTestApi').RecipeDetail) {
+  inlineEdit.mode = true
+  inlineEdit.recipe = recipe
+  inlineEdit.edits = {}
+  inlineEdit.endByDialog = { open: false, stepIndex: -1 }
+  inlineEdit.downloadError = ''
+}
+
+function isRecipeLiveEditable(recipe: RecipeDetail | null | undefined) {
+  return !!recipe && recipe.livePresent !== false
+}
+
+function showDbOnlyEditBlocked() {
+  window.alert('RMS Download 이후 수정이 가능합니다.')
+}
+
+async function enterInlineEditForRecipeId(recipeId?: string) {
+  const targetId = recipeId || selectedRecipeSingle.value?.id
+  if (!targetId || targetId === 'R_NONE') return
+  const before = allRecipes.value.find(r => r.id === targetId)
+  if (before && !isRecipeLiveEditable(before)) {
+    showDbOnlyEditBlocked()
+    return
+  }
+  selectedRecipes.clear()
+  selectedRecipes.add(targetId)
+  lastRecipe.value = targetId
+  await ensureRecipeDetailById(targetId)
+  await nextTick()
+  const recipe = allRecipes.value.find(r => r.id === targetId)
+  if (!recipe) return
+  if (!isRecipeLiveEditable(recipe)) {
+    showDbOnlyEditBlocked()
+    return
+  }
+  beginInlineEdit(recipe)
+}
+
 function toggleInlineEdit() {
   if (inlineEdit.mode) {
-    cancelInlineEdit()
+    requestInlineEditCancel()
   } else {
-    const r = selectedRecipeSingle.value
-    if (!r) return
-    inlineEdit.mode = true
-    inlineEdit.recipe = r
-    inlineEdit.edits = {}
+    void enterInlineEditForRecipeId()
   }
 }
 
@@ -2275,22 +2348,23 @@ function onEndByConfirm(payload: { option: number; maxTime: number; minTime: num
   inlineEdit.endByDialog.open = false
 }
 
-async function handleInlineDownload() {
-  if (!inlineEdit.recipe) return
+async function handlePreviewDownload() {
+  const recipe = selectedRecipeSingle.value
+  if (!recipe) return
   inlineEdit.downloadError = ''
   try {
     const blob = await recipeTestApi.encodePolCon(
       eqpId.value,
-      inlineEdit.recipe.id,
-      inlineEdit.edits,
-      inlineEdit.recipe.name,
+      recipe.id,
+      {},
+      recipe.name,
       getActorName(),
       getActorTeam(),
     )
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = inlineEdit.recipe.name
+    a.download = recipe.name
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -2529,6 +2603,10 @@ function onJobListItemClick(payload: { id: string; event: MouseEvent }) {
   onJobClick(payload.id, payload.event)
 }
 function onRecipePanelPick(payload: { recipeId: string; event: MouseEvent }) {
+  if (inlineEdit.mode) {
+    requestInlineEditCancel(() => onRecipePick(payload.recipeId, payload.event))
+    return
+  }
   onRecipePick(payload.recipeId, payload.event)
 }
 function onCasContentCellClick(payload: { slot: number; jobName: string; event: MouseEvent }) {
@@ -3324,7 +3402,7 @@ function openListMenu(kind:'cas'|'job'|'recipe', e:MouseEvent){
         ['pol', 'con'].includes(String((singleRecipe as any).meta?.sourceType ?? ''))
       )
       if (isPolCon && singleRecipe) {
-        items.push({ label:'Edit', action:()=>{ ctxMenu.open=false; openPolConEdit(singleRecipe) } })
+        items.push({ label:'Edit', action:()=>{ ctxMenu.open=false; void enterInlineEditForRecipeId(singleRecipe.id) } })
       }
       items.push({ label:'Rename', action:()=>{ ctxMenu.open=false; recipeListEditRename() } })
       items.push({ label:'Save As', action:()=>{ ctxMenu.open=false; recipeListSaveAs() } })
@@ -3992,8 +4070,11 @@ function onGlobalClickCapture(ev: MouseEvent){
     if(inlineEdit.mode){
       const preview = panel?.querySelector('.grid-wrap')
       if(!preview || !preview.contains(target)){
-        cancelInlineEdit()
+        requestInlineEditCancel(() => {
+          if(!(panel && panel.contains(target))) closeRecipePanel()
+        })
         if(panel && panel.contains(target)) return
+        return
       }
     }
     if(panel && panel.contains(target)) return
@@ -4229,7 +4310,7 @@ async function load(keepRecipePanel:boolean){
     })
 
     const baseRecipes = res.recipeList.map(r =>
-      createPlaceholderRecipe(r.id, r.name, 'Recipe를 선택하면 preview를 불러옵니다.', r.modifiedAt ?? '', 'recipe')
+      createPlaceholderRecipe(r.id, r.name, 'Recipe를 선택하면 preview를 불러옵니다.', r.modifiedAt ?? '', 'recipe', recipeStateFromItem(r))
     )
     recipeSourceCache.recipe = [...baseRecipes]
     recipeSourceTitleMap.recipe = 'Recipe'

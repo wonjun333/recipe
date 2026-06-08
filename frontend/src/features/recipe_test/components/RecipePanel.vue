@@ -123,6 +123,20 @@
             <div class="recipe-meta" v-if="selectedRecipeSingle.modifiedAt">Modified Time: <strong>{{ selectedRecipeSingle.modifiedAt }}</strong></div>
             <div class="preview-toolbar-spacer"></div>
             <button
+              v-if="displayPreviewColumns.length && isPolConPreview && !inlineEditMode"
+              class="win-btn iconbtn download-preview-btn"
+              type="button"
+              title="download recipe"
+              aria-label="download recipe"
+              @click.stop="emit('preview-download')"
+            >
+              <svg class="copy-preview-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v11"></path>
+                <path d="m7 10 5 5 5-5"></path>
+                <path d="M5 20h14"></path>
+              </svg>
+            </button>
+            <button
               v-if="displayPreviewColumns.length"
               class="win-btn iconbtn copy-preview-btn"
               type="button"
@@ -155,7 +169,6 @@
               <template v-else>
                 <span class="edit-mode-badge">EDIT MODE</span>
                 <button class="win-btn edit-save-btn" type="button" @click.stop="emit('inline-save')">Save</button>
-                <button class="win-btn edit-dl-btn" type="button" @click.stop="emit('inline-download')">Download</button>
                 <button class="win-btn" type="button" @click.stop="emit('toggle-inline-edit')">Cancel</button>
               </template>
             </template>
@@ -253,6 +266,10 @@ const props = defineProps({
     default: () => ({ name: 240, modifiedAt: 120 }),
   },
   inlineEditMode: { type: Boolean, default: false },
+  inlineEditValues: {
+    type: Object as PropType<Record<string, number[]>>,
+    default: () => ({}),
+  },
 })
 
 const emit = defineEmits<{
@@ -274,7 +291,7 @@ const emit = defineEmits<{
   (e: 'toggle-inline-edit'): void
   (e: 'inline-cell-click', payload: { rowIndex: number; column: string }): void
   (e: 'inline-save'): void
-  (e: 'inline-download'): void
+  (e: 'preview-download'): void
 }>()
 
 const EDITABLE_COLUMNS = new Set(['End By'])
@@ -307,10 +324,55 @@ function conExtraClass(column: string, rowIndex: number): string {
 }
 
 function conCellHtml(column: string, value: unknown, row: Record<string, unknown>, rowIndex: number): string {
+  if (props.inlineEditMode && column === 'End By') {
+    const edited = inlineEditedEndByHtml(rowIndex)
+    if (edited) return edited
+  }
   if (isConPreview.value && CON_INSITU_COLS.has(column) && isConInSituAtRow(rowIndex)) {
     return `<span class="recipe-line">In</span><br><span class="recipe-line">Situ</span>`
   }
   return recipeCellHtml(column, value, row)
+}
+
+function inlineParamValue(key: string, rowIndex: number): number | null {
+  const edited = props.inlineEditValues?.[key]
+  if (Array.isArray(edited) && rowIndex < edited.length) return Number(edited[rowIndex]) || 0
+  const pv = (props.selectedRecipeSingle as any)?.meta?.editableModel?.paramValues
+  const arr = pv?.[key]
+  if (Array.isArray(arr) && rowIndex < arr.length) return Number(arr[rowIndex]) || 0
+  return null
+}
+
+function formatEditedNumber(value: number | null, digits = 1) {
+  return value === null ? '(None)' : value.toFixed(digits)
+}
+
+function inlineEditedEndByHtml(rowIndex: number): string {
+  const sourceType = String((props.selectedRecipeSingle as any)?.meta?.sourceType ?? '')
+  if (sourceType === 'con') {
+    const maxTime = inlineParamValue('END_STEP_CITRIA_MAX_TIME', rowIndex) ?? inlineParamValue('END_BY_MAX/TIME', rowIndex)
+    return recipeCellHtml('End By', formatEditedNumber(maxTime, 1), {})
+  }
+  const option = inlineParamValue('EPD_END_STEPOPTION', rowIndex)
+  const maxTime = inlineParamValue('END_BY_MAX/TIME', rowIndex)
+  const minTime = inlineParamValue('END_BY_MIN', rowIndex)
+  const labels: Record<number, string> = {
+    0: 'Time',
+    1: 'RPM',
+    2: 'Pressure',
+    3: 'Endpoint',
+    4: 'Time/EP',
+    5: 'All Hds Rdy',
+    6: 'Rate',
+    7: 'Rate/EP',
+    8: '%OP(EP)',
+  }
+  const idx = Math.round(option ?? 0)
+  const label = labels[idx] ?? `#${idx}`
+  const text = idx === 3
+    ? `${label}\nmin ${formatEditedNumber(minTime, 1)} s\nmax ${formatEditedNumber(maxTime, 1)} s`
+    : `${label}\n${formatEditedNumber(maxTime, 1)} s`
+  return recipeCellHtml('End By', text, {})
 }
 
 function stripKnownRecipeExt(name: unknown) {
@@ -807,7 +869,8 @@ onBeforeUnmount(() => {
 .preview-toolbar-spacer{
   flex:1 1 auto;
 }
-.copy-preview-btn{
+.copy-preview-btn,
+.download-preview-btn{
   margin-right:6px;
   background:#eef2f7;
   border:1px solid #9aa4b2;

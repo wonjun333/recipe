@@ -42,6 +42,9 @@ export type RecipeDetail = {
   rows: GridRow[]
   modifiedAt?: string
   sourceKind?: RecipeSourceKind
+  livePresent?: boolean
+  cloudProtected?: boolean
+  cached?: boolean
   meta?: RecipeMeta
 }
 
@@ -108,7 +111,7 @@ export type JobParsed = {
   hcluRecipes?: JobHcluRecipes
 }
 export type JobRecipeClickPayload = { value: string; sourceKind: RecipeSourceKind; titleBase: string; emphasizeText?: string; platen?: 1 | 2 | 3 | null }
-export type RecipeSourceListItem = { id: string; name: string; modifiedAt: string; sourceKind: RecipeSourceKind; ext?: string }
+export type RecipeSourceListItem = { id: string; name: string; modifiedAt: string; sourceKind: RecipeSourceKind; ext?: string; livePresent?: boolean; cloudProtected?: boolean; cached?: boolean }
 export type RecipeSourceListResponse = { sourceKind: RecipeSourceKind; titleBase: string; path: string; exts: string[]; readError?: string; items: RecipeSourceListItem[] }
 export type InventoryFailure = { failureId: number; eqpId: string; sourcePath: string; stage: string; reason: string; createdAt: string; resolved: boolean }
 export type InventoryFailuresResponse = { items: InventoryFailure[] }
@@ -117,7 +120,7 @@ export type InventoryRecipeSnapshotResponse = { eqpId: string; snapshotHash: str
 export type LoadRequest = { line: string; team: string; eqpId: string }
 export type EqpOptionItem = { line: string; team: string; eqpId: string; model?: string; maker?: string; modelGroup?: string }
 export type EqpOptionsResponse = { items: EqpOptionItem[]; lineOptions: string[]; teamOptions: string[]; eqpOptions: string[] }
-export type LoadResponse = { eqpId: string; meta?: any; casList: FileEntry[]; jobList: Array<{ id: string; jobName: string; recipeName: string; modifiedAt: string }>; recipeList: Array<{ id: string; name: string; modifiedAt?: string }>; casToJobs?: Record<string, string[]> }
+export type LoadResponse = { eqpId: string; meta?: any; casList: FileEntry[]; jobList: Array<{ id: string; jobName: string; recipeName: string; modifiedAt: string }>; recipeList: Array<{ id: string; name: string; modifiedAt?: string; livePresent?: boolean; cloudProtected?: boolean; cached?: boolean }>; casToJobs?: Record<string, string[]> }
 export type CasContentResponse = { casId: string; slots: Array<{ slot: number; jobId: string; jobName: string; recipeName: string }>; jobIds?: string[]; raw?: string }
 export type JobContentResponse = { jobId: string; jobName: string; baseRecipeName: string; parsed: JobParsed; raw?: string }
 export type RecipeContentResponse = { recipe: RecipeDetail }

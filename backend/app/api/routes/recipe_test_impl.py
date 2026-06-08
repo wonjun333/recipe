@@ -1793,7 +1793,14 @@ def load_recipe_test(req: LoadRequest):
             pass
 
         recipe_list = [
-            {"id": make_recipe_id(x["name"]), "name": x["name"], "modifiedAt": x["modifiedAt"]}
+            {
+                "id": make_recipe_id(x["name"]),
+                "name": x["name"],
+                "modifiedAt": x.get("modifiedAt", ""),
+                "livePresent": bool(x.get("livePresent", True)),
+                "cloudProtected": bool(x.get("cloudProtected", False)),
+                "cached": not bool(x.get("livePresent", True)),
+            }
             for x in recipe_entries
         ]
 
@@ -2043,6 +2050,9 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
             "modifiedAt": x.get("modifiedAt", ""),
             "sourceKind": sourceKind,
             "ext": str(x.get("ext") or ""),
+            "livePresent": bool(x.get("livePresent", True)),
+            "cloudProtected": bool(x.get("cloudProtected", False)),
+            "cached": not bool(x.get("livePresent", True)),
         }
         for x in merged
         if str(x.get("name") or "").strip()
@@ -2442,10 +2452,7 @@ def save_pol_con(req: PolConSaveRequest, request: Request):
     try:
         original_bytes = svc_ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, path, recipe_name)
     except Exception:
-        original_bytes = (
-            get_latest_version_bytes(req.eqpId, path, recipe_name)
-            or read_vm_recipe_bytes(req.eqpId, path, recipe_name)
-        )
+        raise HTTPException(status_code=400, detail='설비 FTP에 실제 존재하는 recipe만 저장할 수 있습니다. RMS Download 이후 수정이 가능합니다.')
 
     if not original_bytes:
         raise HTTPException(status_code=404, detail='원본 파일 bytes를 가져올 수 없습니다.')
