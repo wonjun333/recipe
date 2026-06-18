@@ -1,143 +1,89 @@
-# SAML 인증 구현 설계
+# SAML 인증 연동 문서
 
-## 1. 참고 코드 참고 범위
+Last updated: 2026-06-18
 
-제공된 참고 코드는 OIDC 방식이다. 실제 구현은 **Node.js + passport-saml** 로 진행한다.
-흐름 구조(로그인 진입 → redirect → callback → claims 추출 → 출력)는 동일하게 참고한다.
+## 1. 목적
 
----
+사내 SAML 인증 흐름과 FastAPI/Vue 연동 기준을 정리한다. 현재 runtime 기준은 SAML JWT cookie이며 fake user fallback은 사용하지 않는다.
 
-## 2. 제약 조건
+## 2. 구성 요소
 
-AD에 등록된 값 변경 불가:
+- `Nodejs_SAML`: SAML login/callback 처리 및 JWT cookie 발급
+- `backend/app/routers/auth.py`: FastAPI에서 JWT cookie 검증
+- `frontend/src/components/TopBarNav.vue`: 인증 사용자 표시 및 logout
+- `backend/app/services/user_profile_service.py`: MongoDB에서 사용자 part/profile 보강
 
-```
-Service URL  : https://10.173.131.184:8282/
-Callback URL : https://10.173.131.184:8282/
-```
+## 3. 필수 env
 
-| Method | Path | 역할 |
-|--------|------|------|
-| GET | `/login` | SAML AuthnRequest 생성 → AD redirect |
-| POST | `/` | AD → SAMLResponse 수신 (ACS) |
+### Nodejs_SAML
 
-> `vite preview`(포트 8282) 반드시 종료. Node.js SAML 서버가 8282 단독 점유.
-
----
-
-## 3. 구현 목표 (1차: 연결 확인)
-
-1. `GET /login` → SAML AuthnRequest 생성 → AD 로그인으로 redirect
-2. AD 인증 완료 → `POST /` callback 수신 (SAMLResponse)
-3. claims 추출 → `console.log` + 화면에 JSON 출력
-
-세션/쿠키/JWT 발급 없음.
-
----
-
-## 4. env (`Nodejs_SAML/.env`)
+IdP 담당자에게 받은 값을 사용한다.
 
 ```env
-# AD/IdP 연결 (담당자에게 수령)
-SAML_ENTRY_POINT=https://ad-idp.example.com/adfs/ls/
-SAML_ISSUER=https://10.173.131.184:8282/
-SAML_CALLBACK_URL=https://10.173.131.184:8282/
-
-# IdP 서명 인증서 (줄바꿈은 \n 리터럴로 한 줄 저장)
-SAML_IDP_CERT="-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----"
-
-# HTTPS 서버 인증서 (https.createServer 전용, SAML Strategy 옵션 아님)
-SAML_SSL_KEY_PATH=cert/key.pem
-SAML_SSL_CERT_PATH=cert/cert.pem
-
-# 선택 (기본값 사용 가능)
-SAML_PORT=8282
-SAML_IDENTIFIER_FORMAT=urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified
-SAML_SIGNATURE_ALGORITHM=sha256
-SAML_ACCEPTED_CLOCK_SKEW_MS=-1
+SAML_ENTRY_POINT=
+SAML_ISSUER=
+SAML_CALLBACK_URL=
+SAML_CERT=
+JWT_PRIVATE_KEY_PATH=
+AUTH_COOKIE_NAME=auth_token
 ```
 
-> `SAML_IDP_CERT`는 AD/IdP가 SAMLResponse 서명에 사용하는 인증서. SSL 인증서(`cert.pem`)와 별개.
+### Backend
 
----
-
-## 5. 라우팅 설계
-
-```js
-// 로그인 진입
-app.get('/login',
-  passport.authenticate('saml', { failureRedirect: '/login' })
-);
-
-// ACS callback
-app.post('/',
-  passport.authenticate('saml', { failureRedirect: '/login' }),
-  function (req, res) {
-    console.log('SAML user:', req.user);
-    res.type('html').send(`<pre>${escapeHtml(JSON.stringify(req.user, null, 2))}</pre>`);
-  }
-);
+```env
+AUTH_COOKIE_NAME=auth_token
+JWT_CERT_PATH=../Nodejs_SAML/cert/cert.pem
+MONGO_URL=mongodb://<host>:<port>/
 ```
 
----
+## 4. 인증 흐름
 
-## 6. passport-saml 핵심 설정
-
-```js
-const strategy = new SamlStrategy({
-  entryPoint:               process.env.SAML_ENTRY_POINT,
-  issuer:                   process.env.SAML_ISSUER,
-  callbackUrl:              process.env.SAML_CALLBACK_URL,
-  cert:                     process.env.SAML_IDP_CERT.replace(/\\n/g, '\n'),
-  identifierFormat:         process.env.SAML_IDENTIFIER_FORMAT
-                              || 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified',
-  disableRequestedAuthnContext: true,
-  signatureAlgorithm:       process.env.SAML_SIGNATURE_ALGORITHM || 'sha256',
-  acceptedClockSkewMs:      Number(process.env.SAML_ACCEPTED_CLOCK_SKEW_MS ?? -1),
-}, function (profile, done) {
-  return done(null, {
-    LoginId:    profile['http://schemas.sec.com/2018/05/identity/claims/LoginId'],
-    CompId:     profile['http://schemas.sec.com/2018/05/identity/claims/CompId'],
-    DeptId:     profile['http://schemas.sec.com/2018/05/identity/claims/DeptId'],
-    Sabun:      profile['http://schemas.sec.com/2018/05/identity/claims/Sabun'],
-    Mail:       profile['http://schemas.sec.com/2018/05/identity/claims/Mail'],
-    UserId:     profile['http://schemas.sec.com/2018/05/identity/claims/UserId'],
-    DeptName:   profile['http://schemas.sec.com/2018/05/identity/claims/DeptName'],
-    GrdName:    profile['http://schemas.sec.com/2018/05/identity/claims/GrdName'],
-    Username:   profile['http://schemas.sec.com/2018/05/identity/claims/Username'],
-    rawProfile: profile,  // claim mapping 확인용, 연결 완료 후 제거
-  });
-});
-```
-
----
-
-## 7. 흐름도
+1. 사용자가 웹에 접속한다.
+2. 인증 cookie가 없으면 SAML login으로 이동한다.
+3. IdP 인증 성공 후 Nodejs_SAML callback이 JWT cookie를 발급한다.
+4. Frontend는 `/api/auth/me`로 사용자 정보를 조회한다.
+5. Backend는 `AUTH_COOKIE_NAME` cookie를 읽고 `JWT_CERT_PATH`의 public key로 검증한다.
+6. Backend API는 request에서 사용자 정보를 추출해 history actor에 사용한다.
 
 ```mermaid
 sequenceDiagram
-    participant B as Browser (Windows)
-    participant S as Nodejs_SAML :8282
-    participant AD as AD / SAML IdP
+    participant Browser as Browser
+    participant Vue as Vue Frontend
+    participant SAML as Nodejs_SAML
+    participant IdP as Corporate IdP
+    participant API as FastAPI Backend
 
-    B->>S: GET /login
-    S->>S: AuthnRequest 생성
-    S-->>B: 302 → AD 로그인 URL (SAML_ENTRY_POINT)
-
-    B->>AD: AD 로그인
-    AD-->>B: SAMLResponse 포함 HTML form (auto-submit)
-
-    B->>S: POST / (SAMLResponse)
-    S->>S: 서명 검증 (SAML_IDP_CERT)
-    S->>S: claims 추출 → console.log
-    S-->>B: claims JSON 화면 출력
+    Browser->>Vue: Open app
+    Vue->>API: GET /api/auth/me
+    API-->>Vue: 401 when cookie is missing/invalid
+    Browser->>SAML: Start SAML login
+    SAML->>IdP: Redirect AuthnRequest
+    IdP-->>SAML: SAML Response
+    SAML-->>Browser: Set JWT auth cookie
+    Vue->>API: GET /api/auth/me with cookie
+    API-->>Vue: Authenticated user payload
 ```
 
----
+## 5. FastAPI 계약
 
-## 8. 확인 사항
+- `GET /api/auth/me`
+  - 성공: SAML payload 기반 사용자 정보
+  - 실패: 401
+- `POST /api/auth/logout`
+  - auth cookie 삭제
+- `GET /api/user/profile`
+  - MongoDB에서 사용자 part/profile 조회
 
-- `POST /` 라우터를 static 서빙보다 먼저 등록
-- AD가 HTTP-POST Binding으로 callback 보내는지 확인
-- `SAML_IDP_CERT`는 env에서 `\n` 리터럴로 저장 → 코드에서 `.replace(/\\n/g, '\n')` 적용
-- `failureRedirect: '/login'` 으로 설정 (무한루프 방지)
+## 6. 검증 항목
+
+- cookie name이 Nodejs_SAML과 backend에서 동일한지 확인
+- JWT 서명 private/public key pair 일치 확인
+- cookie domain/path/secure/samesite 정책 확인
+- 인증 실패 시 fake user로 대체되지 않는지 확인
+- My History actorName/knoxid가 SAML payload에서 들어오는지 확인
+
+## 7. 주의사항
+
+- Windows 브라우저에서 접속하더라도 backend 검증은 Ubuntu runtime 기준이다.
+- 인증서 경로는 Ubuntu 배포 경로 기준으로 확인한다.
+- SAML payload field 이름이 변경되면 `auth.py`의 enrichment 로직도 같이 점검한다.

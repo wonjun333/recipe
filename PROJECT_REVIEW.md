@@ -4,7 +4,7 @@ Last reviewed: 2026-06-18
 
 ## 리뷰 범위
 
-이 문서는 현재 저장소 기준의 구조 요약과 작업 지침을 정리한다. 과거 Mac mini, UTM Ubuntu, code-server, ZIP 복원 상태 설명은 현재 기준에서 사용하지 않는다.
+이 문서는 현재 저장소 기준의 구조 요약과 작업 지침을 정리한다. 과거 개발 환경이나 임시 복원 상태 설명은 현재 기준에서 사용하지 않는다.
 
 현재 개발 흐름은 다음을 기준으로 한다.
 
@@ -74,7 +74,7 @@ Windows는 개발 도구 실행 환경일 뿐이며, 최종 동작 판단은 Ubu
 
 ## 재검증이 필요한 항목
 
-아래 항목은 과거 리뷰에서 나온 내용이며, 현재 코드 기준으로 재검증 후 유지/삭제를 결정해야 한다.
+아래 항목은 과거 리뷰에서 반복적으로 나온 내용이며, 현재 코드 기준으로 재검증 후 유지/삭제를 결정해야 한다. 과거 상세 리뷰 문서는 제거하고 핵심만 여기에 남긴다.
 
 1. `backend/app/api/routes/recipe_test.py`와 `recipe_test_impl.py`의 중복 여부
 2. `backend/app/api/routes/recipe_file_ops.py`, `recipe_test_ops.py`의 실제 router 등록 여부
@@ -85,6 +85,16 @@ Windows는 개발 도구 실행 환경일 뿐이며, 최종 동작 판단은 Ubu
 7. `backend/app/RMS/run_RMS.sh` 실행 경로
 8. DB/Mongo/FTP/SAML 설정이 모두 `.env`로 분리되어 있는지
 9. `docs/windows-deployment-guide.md`와 최종 Ubuntu 배포 절차의 차이
+
+## 과거 리뷰에서 승계한 핵심 리스크
+
+- API 계약 드리프트: `recipeTestApi.ts`와 FastAPI route 목록을 정기적으로 비교해야 한다.
+- 대형 파일 리스크: `RecipeTestPage.vue`와 `recipe_test_impl.py`는 기능 변경 시 영향 범위가 크다.
+- 저장소 리스크: SQLite cache/history를 여러 process가 동시에 쓸 때 lock 정책과 backup 범위를 확인해야 한다.
+- 운영 경로 리스크: `RECIPE_DATA_DIR`, raw file cache, inventory worker log 경로는 Ubuntu 배포 기준으로 고정해야 한다.
+- 인증/actor 리스크: SAML payload에서 history actor/knoxid가 일관되게 들어오는지 확인해야 한다.
+- 보안 리스크: FTP path 입력, 에러 원문 노출, credential logging 여부를 코드 리뷰 때마다 확인해야 한다.
+- 프런트 UX 리스크: History 오류 상태와 빈 결과 상태를 구분하고, edit 중 selection 변경 같은 상태 전이를 계속 점검해야 한다.
 
 ## 현재 주의할 리스크
 
