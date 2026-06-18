@@ -1,60 +1,111 @@
-# Recipe Front-End / Backend 코드 검토 요약
+# Recipe Frontend / Backend 프로젝트 리뷰
+
+Last reviewed: 2026-06-18
+
+## 리뷰 범위
+
+이 문서는 현재 저장소 기준의 구조 요약과 작업 지침을 정리한다. 과거 Mac mini, UTM Ubuntu, code-server, ZIP 복원 상태 설명은 현재 기준에서 사용하지 않는다.
+
+현재 개발 흐름은 다음을 기준으로 한다.
+
+- AI 실행/편집 환경: 사내 Windows에서 Codex 또는 Claude Code 사용
+- 구현 기준: Linux
+- 최종 검증/빌드/배포: 사내 Ubuntu
+- 사용자 접속 환경: 사내 Windows 브라우저
+
+Windows는 개발 도구 실행 환경일 뿐이며, 최종 동작 판단은 Ubuntu build/run 결과를 기준으로 한다.
 
 ## 목적
 
-이 프로젝트는 CMP 양산 설비의 CAS → JOB → Recipe 파일 흐름을 웹에서 보여주고 일부 파일을 편집·복사·삭제·전송하기 위한 UI/API입니다. CAS/JOB/Recipe 영역은 양산 설비와 유사한 Win97 스타일 UX를 제공하고, 나머지 네비게이션·History·Cart·애니메이션은 최신 Vue 방식으로 구성하는 구조입니다.
+이 프로젝트는 CMP 양산 설비의 CAS -> JOB -> Recipe 파일 흐름을 웹에서 보여주고 일부 파일을 편집, 복사, 삭제, 전송하기 위한 UI/API이다. CAS/JOB/Recipe 영역은 양산 설비와 유사한 Win97 스타일 UX를 제공하고, History/Cart/Navigation은 Vue 기반 웹 UI로 구성한다.
 
 ## 주요 동작
 
 - 설비 선택 후 FTP에서 CAS/JOB/Recipe 목록 조회
-- CAS 파일의 Slot별 Job Name 파싱 및 편집/저장
+- CAS 파일의 slot별 Job Name 파싱 및 편집/저장
 - JOB 파일의 Pre/Post Metrology, Polisher, Cleaner section 파싱 및 편집/저장
 - Recipe 파일 preview 표시
   - `.pol`, `.con`: binary Little Endian decoder 기반 preview
   - `.meg`, `.br`, `.dryr/.drpr`: text recipe parser 기반 preview
-  - `.alg`, `.seg`, `.scx`: preview not available 처리
+  - `.alg`, `.seg`, `.scx`: preview unavailable 처리
 - 파일 Rename / Save As / Delete / Transfer
-- History JSONL 기록 및 조회
+- My History 조회 및 comment 관리
 - RMS CSV 기반 Cloud Protected recipe registry
-- SQLite 기반 inventory/cache + VM mirror 저장
+- SQLite 또는 env 기반 cache/inventory 저장
+- Unit recipe edit history 확장을 위한 structured revision table 지원
+
+## 실제 데이터 연결
+
+현재 기준에서 개발/검증 대상은 실제 사내 데이터 연결이다.
+
+- 설비 마스터: PostgreSQL
+- FTP 인증 정보: MongoDB
+- CAS/JOB/Recipe 파일: FTP
+- 사용자 인증: SAML JWT cookie
+
+가짜 데이터 provider, sample credential, fake user, fake route는 유지 대상이 아니다. 사내 리소스 접근이 실패하면 API는 명확히 실패해야 하며 임의 데이터로 성공처럼 처리하면 안 된다.
 
 ## 구조 요약
 
+- `backend/app/main.py`: FastAPI app entrypoint 및 router 등록
 - `backend/app/api/routes`: FastAPI route
 - `backend/app/services`: FTP, DB credential, parser, decoder, cache, history service
 - `backend/tools`: local debug 및 inventory worker
 - `backend/app/RMS`: RMS에서 cloud protected recipe 목록 내려받기
 - `frontend/src/features/recipe_test`: Recipe Test page, API client, Win97-style components
-- `frontend/src/features/history`: action history UI
+- `frontend/src/features/history`: My History UI
 
-## 불필요하거나 중복 가능성이 있는 파일
+## Linux 기준 작업 지침
 
-- `backend/app/api/routes/recipe_test.py`와 `recipe_test_impl.py`: 기능 중복. 하나의 라우팅 방식으로 정리 권장.
-- `backend/app/api/routes/recipe_file_ops.py`와 `recipe_test_ops.py`: 같은 endpoint를 중복 등록할 수 있음. 하나만 include 권장.
-- `frontend/src/components/Sidebar.vue`: 현재 App.vue는 TopBarNav를 쓰므로 사이드바는 미사용 가능성이 큼.
-- `frontend/src/features/recipe_test/api/recipeFileOpsApi.example.ts`: 샘플/이전 API client 성격. 실제 사용은 `recipeTestApi.ts`.
-- `backend/tools/debug_pol_con_decoder.py`: 개발/디버그 전용.
-- `backend/app/services/pol_con_encoder.py`: 역인코딩 skeleton이며 현재 NotImplemented 상태.
+- shell script, service 실행, build command는 Ubuntu 기준으로 작성한다.
+- Windows에서 Codex/Claude Code로 파일을 편집하더라도 Windows 실행 결과만으로 완료 판단하지 않는다.
+- Python path는 `pathlib.Path`를 우선 사용한다.
+- text parser는 CRLF/LF 모두 처리하되, 최종 검증은 Ubuntu에서 한다.
+- `.env`는 실제 PostgreSQL / MongoDB / FTP / SAML 값을 요구해야 한다.
+- 배포 관련 변경은 Ubuntu 기준 문서와 함께 갱신한다.
 
-## 구동 전 수정이 필요한 핵심 이슈
+## AI Agent 작업 지침
 
-1. `backend/app/main.py`가 실제 router를 include하지 않습니다. `/api/recipe-test/*`, `/api/recipe-inventory/*`를 쓰려면 router include가 필요합니다.
-2. Frontend는 `/api/recipe-inventory/snapshot`, `/api/recipe-test/invalidate-runtime-cache`를 호출하지만 backend에 endpoint가 없습니다.
-3. `cloud_protected_registry.is_cloud_protected_file()`는 1개 인자만 받는데 `recipe_inventory_sync.py`는 3~4개 인자로 호출합니다.
-4. SQLite cache는 worker/backend 동시 접근 시 `database is locked` 가능성이 있으므로 WAL/busy_timeout 적용 권장.
-5. `frontend/package.json`의 `vue-router: ^5.0.3`은 Vue 3 일반 구성에서는 `^4.x`가 더 안정적입니다.
-6. `tsconfig.app.json`의 `noUnusedLocals`, `noUnusedParameters`가 true라면 큰 Vue 파일에서 build 실패 가능성이 있습니다.
-7. `backend/app/RMS/run_RMS.sh`는 현재 `cd backend/app/RMS` 후 `python app/RMS/RMS_down.py`를 호출하여 경로가 중복될 수 있습니다.
-8. DB/Mongo 접속 정보와 계정 정보가 코드에 하드코딩되어 있습니다. `.env`로 분리 권장.
+- `CLAUDE.md`를 우선 지침으로 사용한다.
+- `pol_con_decoder.py`, `pol_con_maps.py`는 수정 금지 파일이다.
+- 사내 DB/FTP 직접 접근이 안 되면 그 사실을 숨기지 말고 검증 한계를 기록한다.
+- 기존 사용자 변경사항을 되돌리지 않는다.
+- 빌드 산출물, cache, `__pycache__`, `node_modules` 하위 파일은 의도 없이 커밋하지 않는다.
 
-## 이 ZIP의 복원 상태
+## 재검증이 필요한 항목
 
-이 ZIP은 사용자가 제공한 파일 구조와 대부분의 서비스/컴포넌트 코드를 기반으로 구성했습니다. 실제 비공개 CSV 데이터는 포함하지 않고 `rcp_id` 헤더와 예시 1행만 넣었습니다.
+아래 항목은 과거 리뷰에서 나온 내용이며, 현재 코드 기준으로 재검증 후 유지/삭제를 결정해야 한다.
 
-주의: 대화에서 매우 길게 제공된 다음 파일은 이 ZIP 안에서 완전본이 아니라 구조 보존용 placeholder/축약본으로 들어 있습니다. 실제 실행용으로는 대화에서 제공한 전체본으로 교체해야 합니다.
+1. `backend/app/api/routes/recipe_test.py`와 `recipe_test_impl.py`의 중복 여부
+2. `backend/app/api/routes/recipe_file_ops.py`, `recipe_test_ops.py`의 실제 router 등록 여부
+3. `frontend/src/components/Sidebar.vue` 미사용 여부
+4. `frontend/src/features/recipe_test/api/recipeFileOpsApi.example.ts` 유지 필요성
+5. `backend/tools/debug_pol_con_decoder.py`의 개발 전용 유지 여부
+6. `frontend/package.json`의 `vue-router` 버전과 실제 build 호환성
+7. `backend/app/RMS/run_RMS.sh` 실행 경로
+8. DB/Mongo/FTP/SAML 설정이 모두 `.env`로 분리되어 있는지
+9. `docs/windows-deployment-guide.md`와 최종 Ubuntu 배포 절차의 차이
 
-- `backend/app/api/routes/recipe_test.py`
-- `backend/app/api/routes/recipe_test_impl.py`
-- `frontend/src/features/recipe_test/pages/RecipeTestPage.vue`
-- 일부 대형 Vue component는 축약 skeleton 형태입니다.
+## 현재 주의할 리스크
 
+- Windows 편집 환경에서 path/encoding 문제가 감춰질 수 있다.
+- 사내 DB/FTP 접근 권한은 agent 실행 위치마다 달라질 수 있다.
+- 실제 데이터 연결만 남긴 뒤에는 local-only 테스트가 줄어들 수 있으므로 Ubuntu smoke test 절차가 필요하다.
+- My History schema가 확장되었으므로, 기존 history UI와 신규 structured revision 표시 정책을 함께 관리해야 한다.
+- SQLite cache/history를 여러 process가 동시에 사용할 경우 lock 정책과 저장 경로를 확인해야 한다.
+
+## 권장 검증 순서
+
+1. Ubuntu 환경에서 frontend build
+2. Ubuntu 환경에서 backend import/compile
+3. 실제 PostgreSQL / MongoDB / FTP / SAML env 확인
+4. 주요 API smoke test
+5. 실제 설비 기준 CAS/JOB/Recipe load, edit, transfer, history 저장 확인
+6. backend service 재시작 및 frontend 정적 파일 배포 확인
+
+## 문서 유지 규칙
+
+- 환경 전제가 바뀌면 `CLAUDE.md`, `PROJECT_REVIEW.md`를 같이 확인한다.
+- 과거 환경이나 임시 복원 상태 설명은 현재 기준 문서에 남기지 않는다.
+- 검증하지 않은 내용은 단정하지 말고 `검증 필요`로 표시한다.
+- 배포 절차는 Ubuntu 최종 배포 절차를 기준으로 적는다.

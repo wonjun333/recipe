@@ -8,26 +8,14 @@ from cryptography.x509 import load_pem_x509_certificate
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.config import AUTH_COOKIE_NAME, AUTH_MODE, JWT_CERT_PATH
+from app.config import AUTH_COOKIE_NAME, JWT_CERT_PATH
 
 router = APIRouter()
 logger = logging.getLogger("recipe.auth")
 
-_MOCK_USER = {
-    "LoginId": "dev_user",
-    "Username": "개발자",
-    "DeptName": "개발팀",
-    "Mail": "dev@company.com",
-    "DisplayName": "개발자",
-    "MailAccount": "dev",
-}
-
 
 @router.get("/api/auth/me")
 def get_me(request: Request):
-    if AUTH_MODE != "saml":
-        return _MOCK_USER
-
     auth_token = request.cookies.get(AUTH_COOKIE_NAME)
     if not auth_token:
         logger.warning(
@@ -98,8 +86,6 @@ def _enrich_auth_payload(payload: dict) -> dict:
 
 def get_user_from_request(request: Request) -> dict:
     """JWT 쿠키에서 enriched user payload 추출. 실패 시 빈 dict 반환."""
-    if AUTH_MODE != "saml":
-        return dict(_MOCK_USER)
     try:
         auth_token = request.cookies.get(AUTH_COOKIE_NAME, "")
         if not auth_token:

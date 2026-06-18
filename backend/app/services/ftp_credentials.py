@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pymongo import MongoClient
 
-from app.config import MOCK_MODE, MONGO_URL
-from app.services.mockup_data import MOCK_FTP_CREDS
+from app.config import MONGO_URL
 
 @dataclass(frozen=True)
 class FtpCredential:
@@ -23,12 +22,6 @@ def _get_mongo_client() -> MongoClient:
 
 
 def load_eqp_ip(eqp_id: str) -> tuple[str, str, str]:
-    if MOCK_MODE:
-        cred = MOCK_FTP_CREDS.get(eqp_id)
-        if not cred:
-            raise ValueError(f"EQPID not found: {eqp_id}")
-        return cred["host"], cred["user"], cred["password"]
-
     doc = _get_mongo_client()["ADDCMP"]["FTP_STATUS"].find_one(
         {"EQPID": eqp_id},
         {

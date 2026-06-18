@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from app.config import MOCK_MODE, MONGO_URL, POSTGRES_URL
-from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_CREDS
+from app.config import MONGO_URL, POSTGRES_URL
 
 _pg_engine = None
 _mongo_client = None
@@ -24,9 +23,6 @@ def _get_mongo_client():
 
 
 def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
-    if MOCK_MODE:
-        items = MOCK_EQP_LIST
-        return items[:limit] if limit and limit > 0 else list(items)
     from sqlalchemy import text
 
     query = text(
@@ -66,12 +62,6 @@ def load_lk_model_eqps(limit: int | None = None) -> list[dict[str, str]]:
 
 
 def load_eqp_ftp_credentials(eqp_id: str) -> dict[str, str]:
-    if MOCK_MODE:
-        cred = MOCK_FTP_CREDS.get(eqp_id)
-        if not cred:
-            raise ValueError(f"FTP credential not found for EQPID={eqp_id}")
-        return dict(cred)
-
     doc = _get_mongo_client()["ADDCMP"]["FTP_STATUS"].find_one(
         {"EQPID": eqp_id},
         {"_id": 0, "FTP_SERVER": 1, "FTP_ID": 1, "FTP_PW": 1},

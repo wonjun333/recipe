@@ -10,10 +10,6 @@ const routes = [
     component: () => import('../features/recipe_test/pages/RecipeTestPage.vue'),
   },
   {
-    path: '/recipe-test-ebara',
-    component: () => import('../features/recipe_ebara/pages/EbaraPage.vue'),
-  },
-  {
     path: '/history',
     component: () => import('../features/history/pages/MyHistoryPage.vue'),
   },

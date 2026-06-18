@@ -16,8 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
-from app.config import MOCK_MODE, POSTGRES_URL
-from app.services.mockup_data import MOCK_EQP_LIST, MOCK_FTP_RESULT, MOCK_SOURCE_ITEMS, get_mock_file_text, get_mock_source_recipe_text
+from app.config import POSTGRES_URL
 from app.services.job_parser import parse_job_text
 from app.services.ftp_credentials import load_eqp_ip as db_load_eqp_ip
 from app.services.file_ops_service import (
@@ -365,9 +364,6 @@ def _run_eqp_master_query(engine, query: str):
 
 
 def load_eqp_master_options() -> list[dict[str, str]]:
-    if MOCK_MODE:
-        return sorted(MOCK_EQP_LIST, key=lambda x: (x["line"], x["team"], x["eqpId"]))
-
     engine = create_engine(POSTGRES_URL)
 
     queries = [
@@ -550,9 +546,6 @@ def filter_entries_by_exts(entries: list[dict[str, str]], exts: list[str]) -> li
 
 
 def get_ftp_file_list(ftp_ip: str, ftp_id: str, ftp_pw: str):
-    if MOCK_MODE:
-        return MOCK_FTP_RESULT
-
     try:
         ftp = connect_ftp(ftp_ip, ftp_id, ftp_pw)
 
@@ -727,49 +720,6 @@ def load_pol_system_cfg(eqp_id: str) -> dict[str, Any]:
     except Exception:
         return {}
 
-def _build_mock_polcon_preview(recipe_id: str, recipe_name: str, modified_at: str, source_kind: str) -> dict[str, Any]:
-    is_con = recipe_name.lower().endswith('.con')
-    if is_con:
-        columns = ['Description', 'End By', 'Platen RPM', 'Head RPM', 'Pad Cond Sweep', 'Sync', 'Pad Cond Downforce', 'HPR', 'Rinse', 'L1', 'L2', 'L3', 'L4']
-        rows = [
-            {'Description': '[MOCK] Step 1', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
-             'Pad Cond Sweep': 'Sine', 'Sync': 'Yes', 'Pad Cond Downforce': '6.0 lbs',
-             'HPR': 'Off', 'Rinse': 'Off', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
-            {'Description': '[MOCK] Step 2', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
-             'Pad Cond Sweep': 'Sine', 'Sync': 'No', 'Pad Cond Downforce': '6.0 lbs',
-             'HPR': 'Off', 'Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
-        ]
-    else:
-        columns = ['Description', 'End By', 'Platen RPM', 'Head RPM', 'Head Sweep',
-                   'RR State', 'Z1 State', 'Z2 State', 'Z3 State', 'Z4 State', 'Z5 State',
-                   'HPR', 'Head Rinse', 'L1', 'L2', 'L3', 'L4']
-        rows = [
-            {'Description': '[MOCK] Step 1', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
-             'Head Sweep': 'Sine', 'RR State': '1.8 psi', 'Z1 State': '6.2 psi', 'Z2 State': '5.8 psi',
-             'Z3 State': '6.0 psi', 'Z4 State': '5.5 psi', 'Z5 State': '5.0 psi',
-             'HPR': 'Off', 'Head Rinse': 'Off', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
-            {'Description': '[MOCK] Step 2', 'End By': 'Time', 'Platen RPM': '93', 'Head RPM': '87',
-             'Head Sweep': 'Sine', 'RR State': '1.8 psi', 'Z1 State': '6.2 psi', 'Z2 State': '5.8 psi',
-             'Z3 State': '6.0 psi', 'Z4 State': '5.5 psi', 'Z5 State': '5.0 psi',
-             'HPR': 'Off', 'Head Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
-            {'Description': '[MOCK] Step 3', 'End By': 'Time', 'Platen RPM': '30', 'Head RPM': '30',
-             'Head Sweep': 'No Sweep', 'RR State': '0.5 psi', 'Z1 State': '0.5 psi', 'Z2 State': '0.5 psi',
-             'Z3 State': '0.5 psi', 'Z4 State': '0.5 psi', 'Z5 State': '0.5 psi',
-             'HPR': 'On', 'Head Rinse': 'On', 'L1': '(None)', 'L2': '(None)', 'L3': '(None)', 'L4': '(None)'},
-        ]
-    return {
-        'recipe': {
-            'id': recipe_id,
-            'name': recipe_name,
-            'modifiedAt': modified_at,
-            'sourceKind': source_kind,
-            'columns': columns,
-            'rows': rows,
-            'meta': {'sourceType': 'con' if is_con else 'pol', 'stepCount': len(rows)},
-        }
-    }
-
-
 def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, recipe_name: str) -> dict[str, Any]:
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:
@@ -794,17 +744,6 @@ def build_source_recipe_content(eqp_id: str, recipe_id: str, source_kind: str, r
                 ],
             }
         }
-
-    if MOCK_MODE:
-        lower = recipe_name.lower()
-        if lower.endswith('.pol') or lower.endswith('.con'):
-            return _build_mock_polcon_preview(recipe_id, recipe_name, modified_at, source_kind)
-        mock_text = get_mock_source_recipe_text(recipe_name)
-        mock_bytes = mock_text.encode('utf-8')
-        preview = build_recipe_preview_from_bytes(recipe_id, recipe_name, modified_at, source_kind, mock_bytes, {'eqpId': eqp_id})
-        if preview:
-            return preview
-        return create_no_preview_recipe(recipe_id, recipe_name, modified_at, source_kind)
 
     ftp_failed = False
     try:
@@ -901,9 +840,6 @@ def ftp_delete_with_shadow(eqp_id: str, path: str, file_name: str) -> dict[str, 
     return svc_ftp_delete_with_shadow(eqp_id, path, file_name)
 
 def ftp_read_text_in_child(ftp_ip: str, ftp_id: str, ftp_pw: str, base_path: str, child_name: str, file_name: str) -> str:
-    if MOCK_MODE:
-        return get_mock_file_text(file_name)
-
     data = ftp_read_bytes_at_path(ftp_ip, ftp_id, ftp_pw, os.path.join(base_path, child_name), file_name)
     for enc in ("utf-8", "cp949", "euc-kr", "latin1"):
         try:
@@ -1024,15 +960,6 @@ def get_entries_from_source_path(ftp_ip: str, ftp_id: str, ftp_pw: str, source_k
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:
         raise ValueError(f"unsupported source kind: {source_kind}")
-
-    if MOCK_MODE:
-        items = MOCK_SOURCE_ITEMS.get(source_kind, [])
-        return {
-            "path": config["path"],
-            "exts": list(config.get("exts", [])),
-            "titleBase": config["titleBase"],
-            "items": items,
-        }
 
     if source_kind == 'metrologyRecipe':
         return get_metrology_source_entries(ftp_ip, ftp_id, ftp_pw)
@@ -2000,8 +1927,7 @@ def get_recipe_source_list(eqpId: str, sourceKind: str):
     config = RECIPE_SOURCE_CONFIG[sourceKind]
     ftp_ip, ftp_id, ftp_pw = load_eqp_ip(eqpId)
 
-    # metrologyRecipe and MOCK_MODE use the FTP-only path
-    if MOCK_MODE or sourceKind == 'metrologyRecipe':
+    if sourceKind == 'metrologyRecipe':
         try:
             source = get_entries_from_source_path(ftp_ip, ftp_id, ftp_pw, sourceKind)
             result = {
@@ -2371,9 +2297,6 @@ def encode_pol_con(req: PolConEncodeRequest, request: Request):
     if not (lower.endswith('.pol') or is_con):
         raise HTTPException(status_code=400, detail='.pol 또는 .con 파일만 인코딩 가능합니다.')
 
-    if MOCK_MODE:
-        raise HTTPException(status_code=400, detail='Mock 모드에서는 바이너리 원본이 없어 인코딩을 지원하지 않습니다.')
-
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:
         raise HTTPException(status_code=404, detail=f'recipe source config 없음: {source_kind}')
@@ -2426,9 +2349,6 @@ def save_pol_con(req: PolConSaveRequest, request: Request):
     is_con = lower.endswith('.con')
     if not (lower.endswith('.pol') or is_con):
         raise HTTPException(status_code=400, detail='.pol 또는 .con 파일만 저장 가능합니다.')
-
-    if MOCK_MODE:
-        raise HTTPException(status_code=400, detail='Mock 모드에서는 바이너리 원본이 없어 저장을 지원하지 않습니다.')
 
     config = RECIPE_SOURCE_CONFIG.get(source_kind)
     if not config:

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from app.config import MOCK_MODE, MONGO_URL
-
-_MOCK_USER_PART = 'CMP1'
+from app.config import MONGO_URL
 
 _mongo_client = None
 
@@ -16,8 +14,6 @@ def _get_mongo_client():
 
 
 def get_user_part(knoxid: str) -> str:
-    if MOCK_MODE:
-        return _MOCK_USER_PART
     if not knoxid:
         return ''
     try:

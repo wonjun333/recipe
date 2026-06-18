@@ -4,7 +4,6 @@
 
     <nav class="nav-center">
       <RouterLink to="/recipe-test" class="nav-item">AMAT</RouterLink>
-      <RouterLink to="/recipe-test-ebara" class="nav-item">Ebara</RouterLink>
     </nav>
 
     <nav class="nav-right">

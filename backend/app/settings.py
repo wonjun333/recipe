@@ -16,7 +16,3 @@ def mongo_url() -> str:
 
 def postgres_url() -> str:
     return os.getenv("POSTGRES_URL", "")
-
-
-def recipe_use_mock() -> bool:
-    return env_flag("RECIPE_USE_MOCK", default=True)

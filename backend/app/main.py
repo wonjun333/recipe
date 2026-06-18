@@ -8,29 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.recipe_inventory import router as recipe_inventory_router
 from app.api.routes.recipe_test_impl import router as recipe_test_router
 from app.routers.auth import router as auth_router
-from app.routers.ebara import router as ebara_router
-from app.settings import recipe_use_mock
-
-
-def _mock_recipe_units(equipment_id: str | None = None) -> list[dict[str, object]]:
-    eqp_id = str(equipment_id or "CMP-A01").strip() or "CMP-A01"
-    return [{
-        "id": 1,
-        "line_name": "LINE-A",
-        "team_name": "CMP1",
-        "equipment_id": eqp_id,
-        "ppid": "MOCK-PPID-001",
-        "cas_name": "MAIN.cas",
-        "job_name": "STI_CMP_P1.job",
-        "unit_recipe_name": "STI_POL_P1_MAIN.pol",
-        "ftp_path": rf"\\{eqp_id}\CMPDB\Lcmp\Recipes",
-        "is_active": True,
-        "created_at": "2026-05-14 00:00:00",
-    }]
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Recipe Mock API")
+    app = FastAPI(title="Recipe API")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(","),
@@ -39,7 +20,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(auth_router)
-    app.include_router(ebara_router)
     app.include_router(recipe_test_router, prefix="/api")
     app.include_router(recipe_inventory_router, prefix="/api")
 
@@ -52,12 +32,6 @@ def create_app() -> FastAPI:
         equipment_id: str | None = Query(default=None),
         ppid: str | None = Query(default=None),
     ):
-        if recipe_use_mock():
-            rows = _mock_recipe_units(equipment_id)
-            if ppid:
-                rows = [row for row in rows if ppid.lower() in str(row.get("ppid") or "").lower()]
-            return rows
-
         sql = """
             SELECT id, line_name, team_name, equipment_id, ppid,
                    cas_name, job_name, unit_recipe_name, ftp_path,

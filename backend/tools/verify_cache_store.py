@@ -1,6 +1,6 @@
 """
-recipe_cache_store.py 동작 검증 스크립트 (SQLite mock DB 사용)
-실제 PostgreSQL 없이도 모든 핵심 로직을 로컬에서 검증한다.
+recipe_cache_store.py 동작 검증 스크립트 (격리된 SQLite DB 사용)
+운영 DB를 건드리지 않고 cache store 핵심 로직을 로컬 임시 DB에서 검증한다.
 
 실행:
   cd backend
@@ -157,7 +157,7 @@ section('6. store_file_version / get_latest_version')
 EQP_V = 'EQP-V1'
 SRC_V = '/recipe'
 try:
-    raw_bytes = b'\x00\x01\x02RECIPE_DATA_MOCK'
+    raw_bytes = b'\x00\x01\x02RECIPE_DATA_SAMPLE'
     result = cs.store_file_version(
         eqp_id=EQP_V,
         source_path=SRC_V,
